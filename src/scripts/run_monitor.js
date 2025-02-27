@@ -9,29 +9,10 @@ const { BigQuery } = require('@google-cloud/bigquery');
 const fs = require('fs-extra');
 const path = require('path');
 const moment = require('moment');
-const { createLogger, format, transports } = require('winston');
 
-// Setup logging
-const logger = createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: format.combine(
-    format.timestamp(),
-    format.json()
-  ),
-  transports: [
-    new transports.Console({
-      format: format.combine(
-        format.colorize(),
-        format.simple()
-      )
-    }),
-    new transports.File({ 
-      filename: path.join(__dirname, '../../logs/cost-monitor.log'),
-      maxsize: 5242880, // 5MB
-      maxFiles: 5,
-    })
-  ]
-});
+// Import common modules
+const { logger } = require('../common/logger');
+const { loadConfig, DEFAULT_CONFIG } = require('../common/config-loader');
 
 // Environment variables with defaults
 const DEFAULT_LOCATION = process.env.BQ_LOCATION || 'US';
@@ -39,35 +20,24 @@ const DEFAULT_HISTORY_DAYS = parseInt(process.env.HISTORY_DAYS || '30', 10);
 const DEFAULT_COST_PER_TB = parseFloat(process.env.COST_PER_TB || '5.0');
 
 // Load configuration
-let config;
-try {
-  const configPath = process.env.CONFIG_PATH || path.join(__dirname, '../../config/projects.json');
-  config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  logger.info(`Loaded configuration from ${configPath}`);
-} catch (error) {
-  logger.error(`Failed to load configuration: ${error.message}`);
-  config = { 
-    projects: [],
-    settings: {
-      historyDays: DEFAULT_HISTORY_DAYS,
-      costPerTerabyte: DEFAULT_COST_PER_TB,
-      refreshInterval: 24
-    }
-  };
-}
+const config = loadConfig();
 
 // Load SQL queries
-let usageQuery, costQuery;
-try {
-  const usageQueryPath = path.join(__dirname, '../queries/usage_query.sql');
-  const costQueryPath = path.join(__dirname, '../queries/cost_query.sql');
-  usageQuery = fs.readFileSync(usageQueryPath, 'utf8');
-  costQuery = fs.readFileSync(costQueryPath, 'utf8');
-  logger.info('SQL queries loaded successfully');
-} catch (error) {
-  logger.error(`Failed to load SQL queries: ${error.message}`);
-  process.exit(1);
-}
+const loadSqlQueries = () => {
+  try {
+    const usageQueryPath = path.join(__dirname, '../queries/usage_query.sql');
+    const costQueryPath = path.join(__dirname, '../queries/cost_query.sql');
+    const usageQuery = fs.readFileSync(usageQueryPath, 'utf8');
+    const costQuery = fs.readFileSync(costQueryPath, 'utf8');
+    logger.info('SQL queries loaded successfully');
+    return { usageQuery, costQuery };
+  } catch (error) {
+    logger.error(`Failed to load SQL queries: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+const { usageQuery, costQuery } = loadSqlQueries();
 
 // Ensure output directory exists
 const outputDir = path.join(__dirname, '../../output');

@@ -32,12 +32,20 @@ bq-cost-monitor/
 ├── config/                  # Configuration files
 │   └── projects.json        # Project settings
 ├── src/
+│   ├── common/              # Shared utilities
+│   │   ├── formatters.js    # Formatting utilities
+│   │   ├── logger.js        # Centralized logging
+│   │   └── config-loader.js # Configuration loading
 │   ├── queries/             # SQL queries for cost monitoring
 │   │   ├── usage_query.sql  # Query to extract usage data
 │   │   └── cost_query.sql   # Query to calculate costs
 │   ├── dataform/            # Dataform integration
 │   │   ├── definitions/     # Dataform table definitions
-│   │   └── includes/        # Reusable SQL snippets
+│   │   ├── includes/        # Reusable SQL snippets
+│   │   └── module/          # Importable dataform module
+│   │       ├── index.js     # Module entry point
+│   │       ├── includes/    # Module includes
+│   │       └── README.md    # Module documentation
 │   ├── scripts/             # Utility scripts
 │   │   ├── run_monitor.js   # Script to run monitoring
 │   │   ├── cloud_function.js # Cloud Function entry point
@@ -45,6 +53,11 @@ bq-cost-monitor/
 │   │   ├── setup_alerts.js  # Alert configuration script
 │   │   └── serve_dashboard.js # Script to serve the dashboard
 │   └── dashboard/           # Web dashboard
+│       ├── components/      # Reusable UI components
+│       │   ├── charts.js    # Chart components
+│       │   ├── tables.js    # Table components
+│       │   ├── metrics.js   # Metrics components
+│       │   └── data.js      # Data loading components
 │       ├── index.html       # Dashboard UI
 │       ├── styles.css       # Dashboard styling
 │       └── app.js           # Dashboard logic
@@ -141,13 +154,26 @@ This will create:
 
 ### Dataform Integration
 
-The `src/dataform` directory contains definitions and includes that can be used in your Dataform projects:
+The `src/dataform/module` directory contains an importable module that can be used in your Dataform projects:
 
-- `definitions/bigquery_cost_monitoring.sqlx`: Creates a table for storing cost data
-- `definitions/daily_cost_summary.sqlx`: Creates a view for daily cost summaries
-- `includes/query_optimization.js`: Provides SQL snippets for optimizing queries
+#### Using the Module
 
-To use these in your Dataform project, copy the files to your Dataform project directory.
+1. Copy the `src/dataform/module` directory to your dataform project
+2. Import the module in your dataform project
+
+```javascript
+// In your dataform project's index.js
+const costMonitor = require("./includes/bq-cost-monitor");
+
+// Create all cost monitoring objects
+costMonitor.createAllCostMonitoringObjects({
+  schema: "analytics",
+  historyDays: 30,
+  costPerTerabyte: 5.0
+});
+```
+
+See the [module README](src/dataform/module/README.md) for detailed usage instructions.
 
 ## Cost Optimization Tips
 
@@ -156,6 +182,9 @@ To use these in your Dataform project, copy the files to your Dataform project d
 3. **Use partitioned and clustered tables** when possible
 4. **Leverage the cache** by running identical queries within 24 hours
 5. **Use approximate aggregation functions** when exact precision isn't required
+6. **Consider materializing** commonly used subqueries or CTEs
+7. **Use incremental builds** instead of full rebuilds when possible
+8. **Monitor query costs** with BigQuery Cost Monitor
 
 ## Environment Variables
 
