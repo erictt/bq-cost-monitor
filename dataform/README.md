@@ -2,17 +2,17 @@
 
 ## Installation
 
-Since this is a modified version, you'll need to use it directly from the source files:
+You can use this package in your Dataform projects:
 
-1. Copy the `modified_index.js` file to your project
-2. Import it directly in your Dataform project
+1. Copy the entire `dataform` directory to your project
+2. Import the package in your Dataform project
 
 ## Usage with Existing Datasets
 
 ```javascript
 // Import the modified BigQueryCostMonitor class
 // const { BigQueryCostMonitor } = require("./path/to/modified_index");
-const { BigQueryCostMonitor } = require("bq-cost-monitoring");
+const { BigQueryCostMonitor } = require("bq-cost-monitor");
 
 // Initialize with an existing dataset
 const costMonitor = new BigQueryCostMonitor({
@@ -94,9 +94,31 @@ These optimizations can significantly reduce the amount of data processed (from 
 
 ## Example Files
 
-- `existing_dataset_example.js`: Shows how to use the modified package with existing datasets
-- `modified_index.js`: The modified version of the package
+- `examples/cost-monitor.js`: Shows how to use the package with existing datasets
+- `src/index.js`: The main package entry point
+- `src/tables/*.js`: Table and view definitions
+- `src/utils/query_optimization.js`: Query optimization utilities
 
-## Original Package
+## Package Structure
 
-For reference, the original package documentation is available in the main README.md file.
+```
+dataform/
+├── examples/            # Example usage
+│   └── cost-monitor.js  # Example implementation
+├── src/                 # Package source code
+│   ├── index.js         # Package entry point
+│   ├── tables/          # Table definitions
+│   │   ├── cost_monitoring.js      # Main cost table
+│   │   ├── daily_summary.js        # Daily summary view
+│   │   ├── dataset_summary.js      # Dataset summary view
+│   │   ├── service_account_summary.js # Service account view
+│   │   └── user_attribution.js     # User attribution table
+│   └── utils/           # Utilities
+│       └── query_optimization.js   # Query optimization
+├── package.json         # Package manifest
+└── README.md            # This file
+```
+
+## Main Project
+
+For the main project documentation, see the [main README.md](../README.md) file.
