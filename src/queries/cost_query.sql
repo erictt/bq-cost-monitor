@@ -269,50 +269,85 @@ SELECT
     )
     ORDER BY day_of_week
   ) AS daily_breakdown,
-  -- Combine all dataset costs across hours
+  -- Pre-aggregated dataset costs across hours using a join instead of a correlated subquery
   ARRAY(
     SELECT AS STRUCT
-      ds.dataset,
-      SUM(ds.bytes_processed) AS bytes_processed,
-      SUM(ds.bytes_billed) AS bytes_billed,
-      SUM(ds.dataset_cost_usd) AS dataset_cost_usd,
-      SUM(ds.rebuild_operations) AS rebuild_operations
-    FROM daily_aggregates d, UNNEST(d.dataset_costs) AS ds
+      agg_ds.dataset,
+      agg_ds.bytes_processed,
+      agg_ds.bytes_billed,
+      agg_ds.dataset_cost_usd,
+      agg_ds.rebuild_operations
+    FROM (
+      SELECT 
+        da.date,
+        da.project_id,
+        da.user_email,
+        da.service_account,
+        ds.dataset,
+        SUM(ds.bytes_processed) AS bytes_processed,
+        SUM(ds.bytes_billed) AS bytes_billed,
+        SUM(ds.dataset_cost_usd) AS dataset_cost_usd,
+        SUM(ds.rebuild_operations) AS rebuild_operations
+      FROM 
+        daily_aggregates da,
+        UNNEST(da.dataset_costs) ds
+      GROUP BY
+        da.date, da.project_id, da.user_email, da.service_account, ds.dataset
+    ) agg_ds
     WHERE 
-      d.date = date
-      AND d.project_id = project_id
-      AND d.user_email = user_email
-      AND (d.service_account = service_account OR (d.service_account IS NULL AND service_account IS NULL))
-    GROUP BY ds.dataset
-    ORDER BY dataset_cost_usd DESC
+      agg_ds.date = daily_aggregates.date
+      AND agg_ds.project_id = daily_aggregates.project_id
+      AND agg_ds.user_email = daily_aggregates.user_email
+      AND (agg_ds.service_account = daily_aggregates.service_account 
+           OR (agg_ds.service_account IS NULL AND daily_aggregates.service_account IS NULL))
+    ORDER BY agg_ds.dataset_cost_usd DESC
   ) AS dataset_costs,
   
-  -- Include all table costs with rebuild information
+  -- Pre-aggregated table costs
   ARRAY(
     SELECT AS STRUCT
-      tc.table_name,
-      tc.table_id,
-      CONCAT(tc.table_project, '.', tc.table_dataset) AS dataset_name,
-      SUM(tc.bytes_processed) AS bytes_processed,
-      SUM(tc.bytes_billed) AS bytes_billed,
-      SUM(tc.table_cost_usd) AS table_cost_usd,
-      LOGICAL_OR(tc.is_rebuild_operation) AS is_rebuild_operation,
-      SUM(CASE WHEN tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS rebuild_cost_usd,
-      SUM(CASE WHEN NOT tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS incremental_cost_usd,
-      COUNTIF(tc.is_rebuild_operation) AS rebuild_count
-    FROM table_costs tc
+      agg_tc.table_name,
+      agg_tc.table_id,
+      agg_tc.dataset_name,
+      agg_tc.bytes_processed,
+      agg_tc.bytes_billed,
+      agg_tc.table_cost_usd,
+      agg_tc.is_rebuild_operation,
+      agg_tc.rebuild_cost_usd,
+      agg_tc.incremental_cost_usd,
+      agg_tc.rebuild_count
+    FROM (
+      SELECT
+        tc.date,
+        tc.project_id,
+        tc.user_email,
+        tc.service_account,
+        tc.table_name,
+        tc.table_id,
+        CONCAT(tc.table_project, '.', tc.table_dataset) AS dataset_name,
+        SUM(tc.bytes_processed) AS bytes_processed,
+        SUM(tc.bytes_billed) AS bytes_billed,
+        SUM(tc.table_cost_usd) AS table_cost_usd,
+        LOGICAL_OR(tc.is_rebuild_operation) AS is_rebuild_operation,
+        SUM(CASE WHEN tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS rebuild_cost_usd,
+        SUM(CASE WHEN NOT tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS incremental_cost_usd,
+        COUNTIF(tc.is_rebuild_operation) AS rebuild_count
+      FROM table_costs tc
+      GROUP BY
+        tc.date, tc.project_id, tc.user_email, tc.service_account, 
+        tc.table_name, tc.table_id, dataset_name
+    ) agg_tc
     WHERE 
-      tc.date = date
-      AND tc.project_id = project_id
-      AND tc.user_email = user_email
-      AND (tc.service_account = service_account OR (tc.service_account IS NULL AND service_account IS NULL))
-    GROUP BY 
-      tc.table_name, tc.table_id, dataset_name
-    ORDER BY 
-      table_cost_usd DESC
+      agg_tc.date = daily_aggregates.date
+      AND agg_tc.project_id = daily_aggregates.project_id
+      AND agg_tc.user_email = daily_aggregates.user_email
+      AND (agg_tc.service_account = daily_aggregates.service_account 
+           OR (agg_tc.service_account IS NULL AND daily_aggregates.service_account IS NULL))
+    ORDER BY agg_tc.table_cost_usd DESC
     LIMIT 100
   ) AS table_costs,
-  -- Simplified approach to include recent queries to avoid multi-level aggregation
+  
+  -- Pre-aggregated recent queries
   ARRAY(
     SELECT AS STRUCT
       qd.job_id,
@@ -325,14 +360,24 @@ SELECT
       qd.cache_hit,
       qd.has_error,
       qd.query_text
-    FROM query_details qd
+    FROM (
+      SELECT
+        qd.*,
+        ROW_NUMBER() OVER(
+          PARTITION BY qd.date, qd.project_id, qd.user_email, 
+          CASE WHEN qd.service_account IS NULL THEN 'NULL' ELSE qd.service_account END
+          ORDER BY qd.creation_time DESC
+        ) as row_num
+      FROM query_details qd
+    ) qd
     WHERE 
-      qd.date = date
-      AND qd.project_id = project_id
-      AND qd.user_email = user_email
-      AND (qd.service_account = service_account OR (qd.service_account IS NULL AND service_account IS NULL))
+      qd.date = daily_aggregates.date
+      AND qd.project_id = daily_aggregates.project_id
+      AND qd.user_email = daily_aggregates.user_email
+      AND (qd.service_account = daily_aggregates.service_account 
+           OR (qd.service_account IS NULL AND daily_aggregates.service_account IS NULL))
+      AND qd.row_num <= 100  -- Keep the 100 most recent queries per day/user combination
     ORDER BY qd.creation_time DESC
-    LIMIT 100  -- Keep the 100 most recent queries per day/user combination
   ) AS recent_queries
 FROM
   daily_aggregates

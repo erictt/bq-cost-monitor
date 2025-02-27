@@ -122,21 +122,36 @@ SELECT
   SUM(js.total_slot_ms) / 1000 / 3600 AS slot_hours,
   -- Calculate cache efficiency
   ROUND(SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100, 2) AS cache_hit_percentage,
-  -- Add array of datasets and their costs
-  ARRAY(
-    SELECT AS STRUCT 
-      dc.dataset, 
-      SUM(dc.bytes_processed) AS bytes_processed,
-      SUM(dc.bytes_billed) AS bytes_billed,
-      SUM(dc.dataset_cost_usd) AS dataset_cost_usd
-    FROM dataset_costs dc
+  -- Pre-aggregated dataset costs using a join pattern instead of a correlated subquery
+  (
+    SELECT ARRAY_AGG(
+      STRUCT(
+        agg_dc.dataset, 
+        agg_dc.bytes_processed,
+        agg_dc.bytes_billed,
+        agg_dc.dataset_cost_usd
+      )
+      ORDER BY agg_dc.dataset_cost_usd DESC
+    )
+    FROM (
+      SELECT
+        dc.date,
+        dc.project_id,
+        dc.user_email,
+        dc.service_account,
+        dc.dataset,
+        SUM(dc.bytes_processed) AS bytes_processed,
+        SUM(dc.bytes_billed) AS bytes_billed,
+        SUM(dc.dataset_cost_usd) AS dataset_cost_usd
+      FROM dataset_costs dc
+      GROUP BY
+        dc.date, dc.project_id, dc.user_email, dc.service_account, dc.dataset
+    ) agg_dc
     WHERE 
-      dc.date = jd.date
-      AND dc.project_id = jd.project_id
-      AND dc.user_email = jd.user_email
-      AND (dc.service_account = jd.service_account OR (dc.service_account IS NULL AND jd.service_account IS NULL))
-    GROUP BY dc.dataset
-    ORDER BY dataset_cost_usd DESC
+      agg_dc.date = jd.date
+      AND agg_dc.project_id = jd.project_id
+      AND agg_dc.user_email = jd.user_email
+      AND (agg_dc.service_account = jd.service_account OR (agg_dc.service_account IS NULL AND jd.service_account IS NULL))
   ) AS dataset_costs
 FROM
   job_dates jd
