@@ -1,5 +1,4 @@
 logs/cost-monitor.log
 node_modules/
-output/gen-lang-client-0702555200_costs_2025-02-26_21-49-23.json
-output/summary_2025-02-26.json
 config/projects.json
+output/*.json
