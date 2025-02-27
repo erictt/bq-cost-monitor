@@ -67,37 +67,50 @@ WITH job_stats AS (
     AND statement_type != 'SCRIPT'
 ),
 
--- Calculate per-dataset costs by attributing the cost of each query proportionally
-dataset_costs AS (
+-- Create a date dimension for each job to avoid GROUP BY issues
+job_dates AS (
   SELECT
+    job_id,
     FORMAT_TIMESTAMP('%Y-%m-%d', creation_time) AS date,
     project_id,
     user_email,
-    service_account,
+    service_account
+  FROM job_stats
+),
+
+-- Calculate per-dataset costs by attributing the cost of each query proportionally
+dataset_costs AS (
+  SELECT
+    jd.date,
+    jd.project_id,
+    jd.user_email,
+    jd.service_account,
     dataset,
     -- Count queries referencing this dataset
     COUNT(*) AS query_count,
     -- Sum bytes processed, attributed proportionally if multiple datasets are involved
-    SUM(total_bytes_processed / ARRAY_LENGTH(referenced_datasets)) AS bytes_processed,
-    SUM(total_bytes_billed / ARRAY_LENGTH(referenced_datasets)) AS bytes_billed,
+    SUM(js.total_bytes_processed / ARRAY_LENGTH(js.referenced_datasets)) AS bytes_processed,
+    SUM(js.total_bytes_billed / ARRAY_LENGTH(js.referenced_datasets)) AS bytes_billed,
     -- Calculate approximate dataset cost (using the configurable cost per TB)
-    ROUND(SUM(total_bytes_billed / ARRAY_LENGTH(referenced_datasets)) / 
+    ROUND(SUM(js.total_bytes_billed / ARRAY_LENGTH(js.referenced_datasets)) / 
           POWER(1024, 4) * ${dataform.projectConfig.vars.cost_per_terabyte}, 2) AS dataset_cost_usd
   FROM
-    job_stats,
-    UNNEST(referenced_datasets) AS dataset
+    job_dates jd
+  JOIN 
+    job_stats js ON jd.job_id = js.job_id,
+    UNNEST(js.referenced_datasets) AS dataset
   WHERE
-    ARRAY_LENGTH(referenced_datasets) > 0
+    ARRAY_LENGTH(js.referenced_datasets) > 0
   GROUP BY
-    date, project_id, user_email, service_account, dataset
+    jd.date, jd.project_id, jd.user_email, jd.service_account, dataset
 )
 
 -- Main query with user and service account attribution
 SELECT
-  FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time) AS date,
-  js.project_id,
-  js.user_email,
-  js.service_account,
+  jd.date,
+  jd.project_id,
+  jd.user_email,
+  jd.service_account,
   -- Query stats
   COUNT(*) AS query_count,
   SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) AS cache_hit_count,
@@ -118,16 +131,18 @@ SELECT
       SUM(dc.dataset_cost_usd) AS dataset_cost_usd
     FROM dataset_costs dc
     WHERE 
-      dc.date = date -- Use the grouped date field
-      AND dc.project_id = project_id -- Use the grouped project_id field
-      AND dc.user_email = user_email -- Use the grouped user_email field  
-      AND (dc.service_account = service_account OR (dc.service_account IS NULL AND service_account IS NULL))
+      dc.date = jd.date
+      AND dc.project_id = jd.project_id
+      AND dc.user_email = jd.user_email
+      AND (dc.service_account = jd.service_account OR (dc.service_account IS NULL AND jd.service_account IS NULL))
     GROUP BY dc.dataset
     ORDER BY dataset_cost_usd DESC
   ) AS dataset_costs
 FROM
-  job_stats js
+  job_dates jd
+JOIN
+  job_stats js ON jd.job_id = js.job_id
 GROUP BY
-  date, project_id, user_email, service_account
+  jd.date, jd.project_id, jd.user_email, jd.service_account
 ORDER BY
-  date DESC, estimated_cost_usd DESC
+  jd.date DESC, estimated_cost_usd DESC

@@ -166,15 +166,28 @@ dataset_costs AS (
     tc.date, tc.project_id, tc.user_email, tc.service_account, dataset, tc.hour_of_day, tc.day_of_week
 ),
 
+-- First create a date dimension for each job to avoid GROUP BY issues
+job_dates AS (
+  SELECT
+    job_id,
+    FORMAT_TIMESTAMP('%Y-%m-%d', creation_time) AS date,
+    project_id,
+    user_email,
+    service_account,
+    hour_of_day,
+    day_of_week
+  FROM job_stats
+),
+
 -- Calculate daily aggregates with granular time dimensions
 daily_aggregates AS (
   SELECT
-    FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time) AS date,
-    js.project_id,
-    js.user_email,
-    js.service_account,
-    js.hour_of_day,
-    js.day_of_week,
+    jd.date,
+    jd.project_id,
+    jd.user_email,
+    jd.service_account,
+    jd.hour_of_day,
+    jd.day_of_week,
     -- Query stats
     COUNT(*) AS query_count,
     SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) AS cache_hit_count,
@@ -201,22 +214,25 @@ daily_aggregates AS (
         dc.dataset, 
         SUM(dc.bytes_processed) AS bytes_processed,
         SUM(dc.bytes_billed) AS bytes_billed,
-        SUM(dc.dataset_cost_usd) AS dataset_cost_usd
+        SUM(dc.dataset_cost_usd) AS dataset_cost_usd,
+        SUM(dc.rebuild_operations) AS rebuild_operations
       FROM dataset_costs dc
       WHERE 
-        dc.date = FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time)
-        AND dc.project_id = js.project_id
-        AND dc.user_email = js.user_email
-        AND (dc.service_account = js.service_account OR (dc.service_account IS NULL AND js.service_account IS NULL))
-        AND dc.hour_of_day = js.hour_of_day
-        AND dc.day_of_week = js.day_of_week
+        dc.date = jd.date
+        AND dc.project_id = jd.project_id
+        AND dc.user_email = jd.user_email
+        AND (dc.service_account = jd.service_account OR (dc.service_account IS NULL AND jd.service_account IS NULL))
+        AND dc.hour_of_day = jd.hour_of_day
+        AND dc.day_of_week = jd.day_of_week
       GROUP BY dc.dataset
       ORDER BY dataset_cost_usd DESC
     ) AS dataset_costs
   FROM
-    job_stats js
+    job_dates jd
+  JOIN
+    job_stats js ON jd.job_id = js.job_id
   GROUP BY
-    date, project_id, user_email, service_account, hour_of_day, day_of_week
+    jd.date, jd.project_id, jd.user_email, jd.service_account, jd.hour_of_day, jd.day_of_week
 )
 
 -- Main query with user and service account attribution, aggregating by date only for the main report
