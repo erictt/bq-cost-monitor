@@ -641,18 +641,51 @@ function showSampleData() {
  */
 function generateSampleData() {
   const data = [];
-  const users = ['user1@example.com', 'user2@example.com', 'user3@example.com'];
-  const serviceAccounts = ['sa-dataform@example.iam.gserviceaccount.com', 'sa-etl@example.iam.gserviceaccount.com'];
-  const allUsers = [...users, ...serviceAccounts];
   
-  // Sample datasets
-  const datasets = [
-    'project1.billing_data',
-    'project1.user_events',
-    'project2.analytics',
-    'project3.raw_logs',
-    'project1.marketing'
+  // Define realistic users and service accounts
+  const entities = [
+    { type: 'user', id: 'finance-analyst@company.com' },
+    { type: 'user', id: 'data-scientist@company.com' },
+    { type: 'sa', id: 'dataform-prod@company-123456.iam.gserviceaccount.com' },
+    { type: 'sa', id: 'dbt-runner@company-123456.iam.gserviceaccount.com' }
   ];
+  
+  // Define realistic datasets with usage patterns
+  const datasetProfiles = [
+    { 
+      name: 'company-data.billing_core', 
+      avgBytes: 1.5e12, // 1.5 TB
+      stdDevBytes: 0.3e12,
+      users: ['finance-analyst@company.com', 'dataform-prod@company-123456.iam.gserviceaccount.com']
+    },
+    { 
+      name: 'company-data.marketing_events', 
+      avgBytes: 5e11, // 500 GB
+      stdDevBytes: 1e11,
+      users: ['data-scientist@company.com', 'dbt-runner@company-123456.iam.gserviceaccount.com']
+    },
+    { 
+      name: 'external-analytics.metrics', 
+      avgBytes: 2e12, // 2 TB
+      stdDevBytes: 0.5e12,
+      users: ['dataform-prod@company-123456.iam.gserviceaccount.com']
+    },
+    { 
+      name: 'user-data.activity_logs', 
+      avgBytes: 3e12, // 3 TB
+      stdDevBytes: 0.8e12,
+      users: ['data-scientist@company.com', 'dbt-runner@company-123456.iam.gserviceaccount.com']
+    },
+    { 
+      name: 'company-data.financial_reports', 
+      avgBytes: 8e11, // 800 GB
+      stdDevBytes: 2e11,
+      users: ['finance-analyst@company.com']
+    }
+  ];
+  
+  // Days with reduced weekend activity
+  const weekendReduction = 0.3; // 70% reduction on weekends
   
   // Generate data for the last 30 days
   for (let i = 0; i < 30; i++) {
@@ -660,71 +693,97 @@ function generateSampleData() {
     date.setDate(date.getDate() - i);
     const dateString = date.toISOString().split('T')[0];
     
-    // Generate data for each user/service account
-    allUsers.forEach(user => {
-      // Random values with some variation
-      const queryCount = Math.floor(Math.random() * 50) + 10;
-      const cacheHitCount = Math.floor(Math.random() * queryCount);
-      const bytesProcessed = Math.floor(Math.random() * 1000000000000) + 100000000000;
-      const bytesBilled = bytesProcessed;
-      const cost = (bytesBilled / Math.pow(1024, 4)) * 5;
+    // Check if it's a weekend
+    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+    const dayFactor = isWeekend ? weekendReduction : 1.0;
+    
+    // Create entries for each entity
+    entities.forEach(entity => {
+      let totalBytes = 0;
+      let totalCost = 0;
+      const isServiceAccount = entity.type === 'sa';
       
-      // Determine if this is a service account
-      const isServiceAccount = user.includes('gserviceaccount.com');
+      // Determine which datasets this entity uses
+      const relevantDatasets = datasetProfiles.filter(ds => 
+        ds.users.includes(entity.id)
+      );
       
-      // Generate sample dataset costs
-      const sampleDatasetCosts = [];
-      const datasetCount = Math.floor(Math.random() * 3) + 1; // 1-3 datasets per user
-      let remainingBytes = bytesProcessed;
-      let remainingCost = cost;
+      if (relevantDatasets.length === 0) {
+        return; // Skip if no datasets for this entity
+      }
       
-      // Select random datasets
-      const userDatasets = [...datasets]
-        .sort(() => 0.5 - Math.random()) // Shuffle
-        .slice(0, datasetCount);
-      
-      // Distribute cost among datasets
-      userDatasets.forEach((dataset, index) => {
-        // For the last dataset, use all remaining cost
-        if (index === datasetCount - 1) {
-          sampleDatasetCosts.push({
-            dataset: dataset,
-            bytes_processed: remainingBytes,
-            bytes_billed: remainingBytes,
-            dataset_cost_usd: remainingCost
-          });
-        } else {
-          // Otherwise distribute randomly
-          const portion = Math.random() * 0.6 + 0.2; // 20-80% of remaining
-          const datasetBytes = Math.floor(remainingBytes * portion);
-          const datasetCost = remainingCost * portion;
-          
-          sampleDatasetCosts.push({
-            dataset: dataset,
-            bytes_processed: datasetBytes,
-            bytes_billed: datasetBytes,
-            dataset_cost_usd: datasetCost
-          });
-          
-          remainingBytes -= datasetBytes;
-          remainingCost -= datasetCost;
-        }
+      // Generate dataset costs for this entity
+      const datasetCosts = relevantDatasets.map(dataset => {
+        // Calculate bytes with normal distribution and day factor
+        const normalRandom = () => {
+          let u = 0, v = 0;
+          while (u === 0) u = Math.random();
+          while (v === 0) v = Math.random();
+          return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        };
+        
+        // Calculate bytes with variation based on normal distribution
+        const baseBytesProcessed = Math.max(
+          dataset.avgBytes + normalRandom() * dataset.stdDevBytes,
+          dataset.avgBytes * 0.1
+        );
+        
+        // Apply weekend factor and some randomness
+        const bytesProcessed = Math.round(
+          baseBytesProcessed * dayFactor * (0.8 + Math.random() * 0.4)
+        );
+        
+        // Round up to the nearest 1 MB for billing
+        const bytesBilled = Math.ceil(bytesProcessed / 1048576) * 1048576;
+        
+        // Calculate cost ($5 per TB)
+        const cost = (bytesBilled / Math.pow(1024, 4)) * 5;
+        
+        totalBytes += bytesProcessed;
+        totalCost += cost;
+        
+        return {
+          dataset: dataset.name,
+          bytes_processed: bytesProcessed,
+          bytes_billed: bytesBilled,
+          dataset_cost_usd: cost
+        };
       });
       
+      // Calculate query count based on bytes and entity type
+      // Service accounts tend to run larger but fewer queries
+      const bytesPerQuery = isServiceAccount ? 2e11 : 5e10; // 200GB per SA query, 50GB per user query
+      const baseQueryCount = Math.max(5, Math.round(totalBytes / bytesPerQuery));
+      const queryCount = Math.round(baseQueryCount * (0.8 + Math.random() * 0.4));
+      
+      // Cache hit rate varies by entity type
+      // Service accounts often run more repeated queries with higher cache hit rates
+      const cacheHitRate = isServiceAccount ? 0.3 + Math.random() * 0.4 : 0.1 + Math.random() * 0.2;
+      const cacheHitCount = Math.round(queryCount * cacheHitRate);
+      
+      // Error count - relatively low
+      const errorRate = 0.02 + Math.random() * 0.03; // 2-5% error rate
+      const errorCount = Math.round(queryCount * errorRate);
+      
+      // Slot utilization - higher for service accounts typically
+      const slotMultiplier = isServiceAccount ? 1.5 : 0.8;
+      const slotHours = (totalBytes / 1e12) * slotMultiplier * (0.8 + Math.random() * 0.4);
+      
+      // Create the data entry
       data.push({
         date: dateString,
-        project_id: 'sample-project',
-        user_email: isServiceAccount ? null : user,
-        service_account: isServiceAccount ? user : null,
+        project_id: 'company-123456',
+        user_email: isServiceAccount ? null : entity.id,
+        service_account: isServiceAccount ? entity.id : null,
         query_count: queryCount,
         cache_hit_count: cacheHitCount,
-        error_count: Math.floor(Math.random() * 5),
-        total_bytes_processed: bytesProcessed,
-        total_bytes_billed: bytesBilled,
-        estimated_cost_usd: cost,
-        slot_hours: Math.random() * 10,
+        error_count: errorCount,
+        total_bytes_processed: totalBytes,
+        total_bytes_billed: totalBytes, // Simplification
+        estimated_cost_usd: totalCost,
+        slot_hours: slotHours,
         cache_hit_percentage: (cacheHitCount / queryCount) * 100,
-        dataset_costs: sampleDatasetCosts
+        dataset_costs: datasetCosts
       });
     });
   }
