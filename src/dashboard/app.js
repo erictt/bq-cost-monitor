@@ -860,6 +860,12 @@ function setupEventListeners() {
       // Update active period
       activePeriod = parseInt(button.dataset.period, 10);
       
+      // Update the period label in the cost card
+      const costPeriodLabel = document.getElementById('costPeriodLabel');
+      if (costPeriodLabel) {
+        costPeriodLabel.textContent = activePeriod;
+      }
+      
       // Update dashboard with new period
       updateDashboard();
     });
