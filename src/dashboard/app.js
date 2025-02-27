@@ -82,27 +82,46 @@ function selectProject(project) {
 /**
  * Load cost data for a specific project
  * @param {string} projectId - The ID of the project
+ * @param {boolean} useSampleData - Whether to use sample data if real data is unavailable 
  */
-async function loadCostData(projectId) {
+async function loadCostData(projectId, useSampleData = false) {
   try {
     showLoading();
     
     // Try to load from the API
     const response = await fetch(`/api/costs/${projectId}`);
     
-    // If no data is available yet, show sample data
+    // If no data is available yet
     if (!response.ok) {
-      showSampleData();
+      console.warn(`No cost data available for project ${projectId}`);
+      
+      if (useSampleData) {
+        // Only show sample data if explicitly requested
+        showSampleData();
+      } else {
+        // Otherwise show the empty state
+        showEmptyState("No cost data available for this project");
+        hideLoading();
+      }
       return;
     }
     
+    // Parse the real data
     costData = await response.json();
     
     // Update the dashboard with the loaded data
     updateDashboard();
   } catch (error) {
     console.error('Error loading cost data:', error);
-    showSampleData();
+    
+    if (useSampleData) {
+      // Only show sample data if explicitly requested
+      showSampleData();
+    } else {
+      // Otherwise show the empty state with error
+      showEmptyState(`Error loading cost data: ${error.message}`);
+      hideLoading();
+    }
   }
 }
 
@@ -501,8 +520,9 @@ function hideLoading() {
 
 /**
  * Show an empty state when no data is available
+ * @param {string} [message] - Optional custom message to display
  */
-function showEmptyState() {
+function showEmptyState(message) {
   hideLoading();
   
   // Update summary metrics with zeros
@@ -510,23 +530,51 @@ function showEmptyState() {
   dataProcessedElement.textContent = '0 TB';
   queryCountElement.textContent = '0';
   
-  // Clear the table
+  // Clear the tables
   queriesTableElement.innerHTML = '';
+  datasetTableElement.innerHTML = '';
   
-  // Add empty state message to the table
+  // Default message if none provided
+  const defaultMessage = 'No cost data available for this project yet.';
+  const instructionMessage = 'Run the cost monitoring script to collect data.';
+  const displayMessage = message || defaultMessage;
+  
+  // Add empty state message to the queries table
   const emptyRow = document.createElement('tr');
   emptyRow.innerHTML = `
     <td colspan="6">
       <div class="empty-state">
-        <p>No cost data available for this project yet.</p>
-        <p>Run the cost monitoring script to collect data.</p>
+        <p>${displayMessage}</p>
+        <p>${instructionMessage}</p>
+        <p><button id="showSampleBtn" class="btn btn-sm btn-outline-secondary">Show Sample Data</button></p>
       </div>
     </td>
   `;
   queriesTableElement.appendChild(emptyRow);
   
+  // Add empty state message to the dataset table
+  const emptyDatasetRow = document.createElement('tr');
+  emptyDatasetRow.innerHTML = `
+    <td colspan="4">
+      <div class="empty-state">
+        <p>No dataset cost information available</p>
+      </div>
+    </td>
+  `;
+  datasetTableElement.appendChild(emptyDatasetRow);
+  
   // Reset charts
   resetCharts();
+  
+  // Add event listener to the sample data button
+  setTimeout(() => {
+    const sampleButton = document.getElementById('showSampleBtn');
+    if (sampleButton) {
+      sampleButton.addEventListener('click', () => {
+        showSampleData();
+      });
+    }
+  }, 0);
 }
 
 /**
