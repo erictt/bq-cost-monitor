@@ -17,6 +17,7 @@ const totalCostElement = document.getElementById('totalCost');
 const dataProcessedElement = document.getElementById('dataProcessed');
 const queryCountElement = document.getElementById('queryCount');
 const queriesTableElement = document.getElementById('queriesTable');
+const datasetTableElement = document.getElementById('datasetTable');
 const periodButtons = document.querySelectorAll('[data-period]');
 
 // Initialize the dashboard
@@ -123,8 +124,11 @@ function updateDashboard() {
   // Update charts
   updateCharts(filteredData);
   
-  // Update the table
+  // Update the query table
   updateTable(filteredData);
+  
+  // Update dataset table
+  updateDatasetTable(filteredData);
   
   // Hide loading indicators
   hideLoading();
@@ -251,33 +255,61 @@ function updateCostTrendChart(dates, data) {
  * @param {Array} data - The data to use for the chart
  */
 function updateUserCostChart(data) {
-  // Aggregate cost by user
-  const costByUser = {};
+  // Aggregate cost by user and service account
+  const costByEntity = {};
+  
   data.forEach(item => {
-    const user = item.user_email || 'Unknown';
-    if (!costByUser[user]) {
-      costByUser[user] = 0;
+    // If service account exists, use it; otherwise use user_email
+    const entityId = item.service_account || item.user_email || 'Unknown';
+    
+    if (!costByEntity[entityId]) {
+      costByEntity[entityId] = {
+        cost: 0,
+        isServiceAccount: !!item.service_account,
+        type: item.service_account ? 'Service Account' : 'User'
+      };
     }
-    costByUser[user] += (item.estimated_cost_usd || 0);
+    
+    costByEntity[entityId].cost += (item.estimated_cost_usd || 0);
   });
   
-  // Sort users by cost and take top 5
-  const topUsers = Object.entries(costByUser)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  // Sort entities by cost and take top 8
+  const topEntities = Object.entries(costByEntity)
+    .sort((a, b) => b[1].cost - a[1].cost)
+    .slice(0, 8);
+  
+  // Format display names for readability
+  const displayNames = topEntities.map(([entity, info]) => {
+    if (info.isServiceAccount) {
+      // For service accounts, format to show just key part
+      return entity.split('@')[0].replace('service-', 'SA:');
+    } else {
+      // For users, just show the username part
+      return entity.split('@')[0];
+    }
+  });
+  
+  // Set up separate datasets for users and service accounts
+  const userCosts = topEntities
+    .filter(([_, info]) => !info.isServiceAccount)
+    .map(([_, info]) => info.cost);
+  
+  const saCosts = topEntities
+    .filter(([_, info]) => info.isServiceAccount)
+    .map(([_, info]) => info.cost);
   
   const chartData = {
-    labels: topUsers.map(([user]) => user.split('@')[0]), // Just show username part
+    labels: displayNames,
     datasets: [{
-      label: 'Cost by User (USD)',
-      data: topUsers.map(([, cost]) => cost),
-      backgroundColor: [
-        'rgba(13, 110, 253, 0.7)',
-        'rgba(25, 135, 84, 0.7)',
-        'rgba(255, 193, 7, 0.7)',
-        'rgba(220, 53, 69, 0.7)',
-        'rgba(108, 117, 125, 0.7)'
-      ],
+      label: 'User',
+      data: topEntities.map(([_, info]) => info.isServiceAccount ? 0 : info.cost),
+      backgroundColor: 'rgba(13, 110, 253, 0.7)',
+      borderWidth: 1
+    },
+    {
+      label: 'Service Account',
+      data: topEntities.map(([_, info]) => info.isServiceAccount ? info.cost : 0),
+      backgroundColor: 'rgba(220, 53, 69, 0.7)',
       borderWidth: 1
     }]
   };
@@ -287,7 +319,34 @@ function updateUserCostChart(data) {
     maintainAspectRatio: false,
     plugins: {
       legend: {
-        position: 'right'
+        position: 'top'
+      },
+      tooltip: {
+        callbacks: {
+          // Custom tooltip to show the actual cost values
+          label: function(context) {
+            const label = context.dataset.label || '';
+            const value = context.raw || 0;
+            return value > 0 ? `${label}: $${value.toFixed(2)}` : null;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        stacked: true,
+        title: {
+          display: true,
+          text: 'User / Service Account'
+        }
+      },
+      y: {
+        stacked: true,
+        title: {
+          display: true,
+          text: 'Cost (USD)'
+        },
+        beginAtZero: true
       }
     }
   };
@@ -301,7 +360,7 @@ function updateUserCostChart(data) {
     userCostChart.update();
   } else {
     userCostChart = new Chart(ctx, {
-      type: 'pie',
+      type: 'bar', // Changed to bar for better visualization of stacked data
       data: chartData,
       options: chartOptions
     });
@@ -491,6 +550,80 @@ function resetCharts() {
 }
 
 /**
+ * Update the dataset cost table
+ * @param {Array} data - The data to use for the table
+ */
+function updateDatasetTable(data) {
+  // Extract and aggregate dataset costs from all users
+  const datasetCosts = {};
+  let totalCost = 0;
+  
+  // Process each item
+  data.forEach(item => {
+    // Add to total cost for percentage calculation
+    totalCost += (item.estimated_cost_usd || 0);
+    
+    // Process dataset_costs array if it exists
+    if (item.dataset_costs && Array.isArray(item.dataset_costs)) {
+      item.dataset_costs.forEach(ds => {
+        const datasetName = ds.dataset;
+        
+        if (!datasetCosts[datasetName]) {
+          datasetCosts[datasetName] = {
+            bytes: 0,
+            cost: 0
+          };
+        }
+        
+        datasetCosts[datasetName].bytes += (ds.bytes_processed || 0);
+        datasetCosts[datasetName].cost += (ds.dataset_cost_usd || 0);
+      });
+    }
+  });
+  
+  // Convert to array and sort by cost
+  const sortedDatasets = Object.entries(datasetCosts)
+    .sort((a, b) => b[1].cost - a[1].cost)
+    .slice(0, 10); // Show top 10 datasets
+  
+  // Clear the table
+  datasetTableElement.innerHTML = '';
+  
+  // Format functions for better readability
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+  
+  // Add rows to the table
+  sortedDatasets.forEach(([dataset, data]) => {
+    const row = document.createElement('tr');
+    
+    // Calculate percentage of total cost
+    const percentage = totalCost > 0 ? (data.cost / totalCost * 100) : 0;
+    
+    row.innerHTML = `
+      <td><code>${dataset}</code></td>
+      <td>${formatBytes(data.bytes)}</td>
+      <td>$${data.cost.toFixed(2)}</td>
+      <td>${percentage.toFixed(1)}%</td>
+    `;
+    
+    datasetTableElement.appendChild(row);
+  });
+  
+  // If no datasets found, show message
+  if (sortedDatasets.length === 0) {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td colspan="4" class="text-center">No dataset cost information available</td>`;
+    datasetTableElement.appendChild(row);
+  }
+}
+
+/**
  * Show sample data for demonstration purposes
  */
 function showSampleData() {
@@ -509,6 +642,17 @@ function showSampleData() {
 function generateSampleData() {
   const data = [];
   const users = ['user1@example.com', 'user2@example.com', 'user3@example.com'];
+  const serviceAccounts = ['sa-dataform@example.iam.gserviceaccount.com', 'sa-etl@example.iam.gserviceaccount.com'];
+  const allUsers = [...users, ...serviceAccounts];
+  
+  // Sample datasets
+  const datasets = [
+    'project1.billing_data',
+    'project1.user_events',
+    'project2.analytics',
+    'project3.raw_logs',
+    'project1.marketing'
+  ];
   
   // Generate data for the last 30 days
   for (let i = 0; i < 30; i++) {
@@ -516,8 +660,8 @@ function generateSampleData() {
     date.setDate(date.getDate() - i);
     const dateString = date.toISOString().split('T')[0];
     
-    // Generate data for each user
-    users.forEach(user => {
+    // Generate data for each user/service account
+    allUsers.forEach(user => {
       // Random values with some variation
       const queryCount = Math.floor(Math.random() * 50) + 10;
       const cacheHitCount = Math.floor(Math.random() * queryCount);
@@ -525,9 +669,53 @@ function generateSampleData() {
       const bytesBilled = bytesProcessed;
       const cost = (bytesBilled / Math.pow(1024, 4)) * 5;
       
+      // Determine if this is a service account
+      const isServiceAccount = user.includes('gserviceaccount.com');
+      
+      // Generate sample dataset costs
+      const sampleDatasetCosts = [];
+      const datasetCount = Math.floor(Math.random() * 3) + 1; // 1-3 datasets per user
+      let remainingBytes = bytesProcessed;
+      let remainingCost = cost;
+      
+      // Select random datasets
+      const userDatasets = [...datasets]
+        .sort(() => 0.5 - Math.random()) // Shuffle
+        .slice(0, datasetCount);
+      
+      // Distribute cost among datasets
+      userDatasets.forEach((dataset, index) => {
+        // For the last dataset, use all remaining cost
+        if (index === datasetCount - 1) {
+          sampleDatasetCosts.push({
+            dataset: dataset,
+            bytes_processed: remainingBytes,
+            bytes_billed: remainingBytes,
+            dataset_cost_usd: remainingCost
+          });
+        } else {
+          // Otherwise distribute randomly
+          const portion = Math.random() * 0.6 + 0.2; // 20-80% of remaining
+          const datasetBytes = Math.floor(remainingBytes * portion);
+          const datasetCost = remainingCost * portion;
+          
+          sampleDatasetCosts.push({
+            dataset: dataset,
+            bytes_processed: datasetBytes,
+            bytes_billed: datasetBytes,
+            dataset_cost_usd: datasetCost
+          });
+          
+          remainingBytes -= datasetBytes;
+          remainingCost -= datasetCost;
+        }
+      });
+      
       data.push({
         date: dateString,
-        user_email: user,
+        project_id: 'sample-project',
+        user_email: isServiceAccount ? null : user,
+        service_account: isServiceAccount ? user : null,
         query_count: queryCount,
         cache_hit_count: cacheHitCount,
         error_count: Math.floor(Math.random() * 5),
@@ -535,7 +723,8 @@ function generateSampleData() {
         total_bytes_billed: bytesBilled,
         estimated_cost_usd: cost,
         slot_hours: Math.random() * 10,
-        cache_hit_percentage: (cacheHitCount / queryCount) * 100
+        cache_hit_percentage: (cacheHitCount / queryCount) * 100,
+        dataset_costs: sampleDatasetCosts
       });
     });
   }

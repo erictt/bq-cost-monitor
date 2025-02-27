@@ -75,7 +75,7 @@
       <div class="col-md-6">
         <div class="card">
           <div class="card-header">
-            <h5 class="mb-0">Top Users by Cost</h5>
+            <h5 class="mb-0">Top Users & Service Accounts by Cost</h5>
           </div>
           <div class="card-body">
             <canvas id="userCostChart"></canvas>
@@ -89,6 +89,31 @@
           </div>
           <div class="card-body">
             <canvas id="cacheHitChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="row mb-4">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-0">Top Datasets by Cost</h5>
+          </div>
+          <div class="card-body table-responsive">
+            <table class="table table-sm table-striped">
+              <thead>
+                <tr>
+                  <th>Dataset</th>
+                  <th>Data Processed</th>
+                  <th>Cost (USD)</th>
+                  <th>% of Total</th>
+                </tr>
+              </thead>
+              <tbody id="datasetTable">
+                <!-- Dataset data will be populated dynamically -->
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
