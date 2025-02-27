@@ -30,7 +30,22 @@ BigQuery Cost Monitor helps teams track and analyze their BigQuery usage and ass
 ```
 bq-cost-monitor/
 ├── config/                  # Configuration files
-│   └── projects.json        # Project settings
+│   └── projects.json.example # Example project settings
+├── dataform/                # Dataform npm package
+│   ├── examples/            # Example usage
+│   │   └── cost-monitor.js  # Example implementation
+│   ├── src/                 # Package source code
+│   │   ├── index.js         # Package entry point
+│   │   ├── tables/          # Table definitions
+│   │   │   ├── cost_monitoring.js      # Main cost table
+│   │   │   ├── daily_summary.js        # Daily summary view
+│   │   │   ├── dataset_summary.js      # Dataset summary view
+│   │   │   ├── service_account_summary.js # Service account view
+│   │   │   └── user_attribution.js     # User attribution table
+│   │   └── utils/           # Utilities
+│   │       └── query_optimization.js   # Query optimization
+│   ├── package.json         # Package manifest
+│   └── README.md            # Package documentation
 ├── src/
 │   ├── common/              # Shared utilities
 │   │   ├── formatters.js    # Formatting utilities
@@ -39,13 +54,6 @@ bq-cost-monitor/
 │   ├── queries/             # SQL queries for cost monitoring
 │   │   ├── usage_query.sql  # Query to extract usage data
 │   │   └── cost_query.sql   # Query to calculate costs
-│   ├── dataform/            # Dataform integration
-│   │   ├── definitions/     # Dataform table definitions
-│   │   ├── includes/        # Reusable SQL snippets
-│   │   └── module/          # Importable dataform module
-│   │       ├── index.js     # Module entry point
-│   │       ├── includes/    # Module includes
-│   │       └── README.md    # Module documentation
 │   ├── scripts/             # Utility scripts
 │   │   ├── run_monitor.js   # Script to run monitoring
 │   │   ├── cloud_function.js # Cloud Function entry point
@@ -60,7 +68,9 @@ bq-cost-monitor/
 │       │   └── data.js      # Data loading components
 │       ├── index.html       # Dashboard UI
 │       ├── styles.css       # Dashboard styling
-│       └── app.js           # Dashboard logic
+│       ├── app.js           # Dashboard logic
+│       ├── eventListeners.js # Event handlers
+│       └── modals.js        # Modal dialogs
 ├── logs/                    # Log files
 └── output/                  # Output directory for monitoring results
 ```
@@ -154,26 +164,36 @@ This will create:
 
 ### Dataform Integration
 
-The `src/dataform/module` directory contains an importable module that can be used in your Dataform projects:
+The `dataform` directory contains a standalone npm package that can be used in your Dataform projects:
 
-#### Using the Module
+#### Using the Package
 
-1. Copy the `src/dataform/module` directory to your dataform project
-2. Import the module in your dataform project
+1. Copy the `dataform` directory to your project or install it as a dependency
+2. Import the package in your Dataform project
 
 ```javascript
 // In your dataform project's index.js
-const costMonitor = require("./includes/bq-cost-monitor");
+const { BigQueryCostMonitor } = require("bq-cost-monitoring");
 
-// Create all cost monitoring objects
-costMonitor.createAllCostMonitoringObjects({
-  schema: "analytics",
+// Initialize with configuration options
+const costMonitor = new BigQueryCostMonitor({
+  schema: "data_governance",  // Your dataset
   historyDays: 30,
-  costPerTerabyte: 5.0
+  costPerTerabyte: 5.0,
+  useExistingDataset: true,   // Use existing dataset
+  projectDatabase: "my-gcp-project"  // GCP project ID
+});
+
+// Create the main cost monitoring table
+const mainTable = costMonitor.createCostMonitoringTable();
+
+// Create views
+costMonitor.createDailySummaryView({
+  sourceTable: mainTable.name
 });
 ```
 
-See the [module README](src/dataform/module/README.md) for detailed usage instructions.
+See the [package README](dataform/README.md) for detailed usage instructions and troubleshooting.
 
 ## Cost Optimization Tips
 
