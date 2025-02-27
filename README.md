@@ -28,7 +28,7 @@ BigQuery Cost Monitor helps teams track and analyze their BigQuery usage and ass
 ## Project Structure
 
 ```
-cost-monitor/
+bq-cost-monitor/
 ├── config/                  # Configuration files
 │   └── projects.json        # Project settings
 ├── src/
@@ -64,8 +64,8 @@ cost-monitor/
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/cost-monitor.git
-   cd cost-monitor
+   git clone https://github.com/erictt/bq-cost-monitor.git
+   cd bq-cost-monitor
    ```
 
 2. Install dependencies:
@@ -184,4 +184,4 @@ npm run lint
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
