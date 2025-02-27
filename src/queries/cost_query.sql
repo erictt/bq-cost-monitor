@@ -108,62 +108,62 @@ query_details AS (
 -- Calculate per-table costs by attributing the cost of each query proportionally
 table_costs AS (
   SELECT
-    FORMAT_TIMESTAMP('%Y-%m-%d', creation_time) AS date,
-    project_id,
-    user_email,
-    service_account,
+    FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time) AS date,
+    js.project_id,
+    js.user_email,
+    js.service_account,
     table_detail.full_table_name AS table_name,
     table_detail.project_id AS table_project,
     table_detail.dataset_id AS table_dataset,
     table_detail.table_id AS table_id,
-    hour_of_day,
-    day_of_week,
+    js.hour_of_day,
+    js.day_of_week,
     -- Count queries referencing this table
     COUNT(*) AS query_count,
     -- Record if this table is being rebuilt (destination matches referenced)
-    LOGICAL_OR(is_table_rebuild AND 
-               destination_table.dataset_id = table_detail.dataset_id AND 
-               destination_table.table_id = table_detail.table_id) AS is_rebuild_operation,
+    LOGICAL_OR(js.is_table_rebuild AND 
+               js.destination_table.dataset_id = table_detail.dataset_id AND 
+               js.destination_table.table_id = table_detail.table_id) AS is_rebuild_operation,
     -- Sum bytes processed, attributed proportionally if multiple tables are involved
-    SUM(total_bytes_processed / ARRAY_LENGTH(referenced_tables_detail)) AS bytes_processed,
-    SUM(total_bytes_billed / ARRAY_LENGTH(referenced_tables_detail)) AS bytes_billed,
+    SUM(js.total_bytes_processed / ARRAY_LENGTH(js.referenced_tables_detail)) AS bytes_processed,
+    SUM(js.total_bytes_billed / ARRAY_LENGTH(js.referenced_tables_detail)) AS bytes_billed,
     -- Calculate approximate table cost (using the configurable cost per TB)
-    ROUND(SUM(total_bytes_billed / ARRAY_LENGTH(referenced_tables_detail)) / 
+    ROUND(SUM(js.total_bytes_billed / ARRAY_LENGTH(js.referenced_tables_detail)) / 
           POWER(1024, 4) * @cost_per_terabyte, 2) AS table_cost_usd
   FROM
-    job_stats,
-    UNNEST(referenced_tables_detail) AS table_detail
+    job_stats js,
+    UNNEST(js.referenced_tables_detail) AS table_detail
   WHERE
-    ARRAY_LENGTH(referenced_tables_detail) > 0
+    ARRAY_LENGTH(js.referenced_tables_detail) > 0
   GROUP BY
-    date, project_id, user_email, service_account, 
+    date, js.project_id, js.user_email, js.service_account, 
     table_name, table_project, table_dataset, table_id, 
-    hour_of_day, day_of_week
+    js.hour_of_day, js.day_of_week
 ),
 
 -- Calculate per-dataset costs by aggregating table costs
 dataset_costs AS (
   SELECT
-    date,
-    project_id,
-    user_email,
-    service_account,
-    CONCAT(table_project, '.', table_dataset) AS dataset,
-    hour_of_day,
-    day_of_week,
+    tc.date,
+    tc.project_id,
+    tc.user_email,
+    tc.service_account,
+    CONCAT(tc.table_project, '.', tc.table_dataset) AS dataset,
+    tc.hour_of_day,
+    tc.day_of_week,
     -- Count queries referencing this dataset
-    SUM(query_count) AS query_count,
+    SUM(tc.query_count) AS query_count,
     -- Sum bytes processed
-    SUM(bytes_processed) AS bytes_processed,
-    SUM(bytes_billed) AS bytes_billed,
+    SUM(tc.bytes_processed) AS bytes_processed,
+    SUM(tc.bytes_billed) AS bytes_billed,
     -- Calculate approximate dataset cost
-    SUM(table_cost_usd) AS dataset_cost_usd,
+    SUM(tc.table_cost_usd) AS dataset_cost_usd,
     -- Count rebuild operations
-    SUM(CASE WHEN is_rebuild_operation THEN 1 ELSE 0 END) AS rebuild_operations
+    SUM(CASE WHEN tc.is_rebuild_operation THEN 1 ELSE 0 END) AS rebuild_operations
   FROM
-    table_costs
+    table_costs tc
   GROUP BY
-    date, project_id, user_email, service_account, dataset, hour_of_day, day_of_week
+    tc.date, tc.project_id, tc.user_email, tc.service_account, dataset, tc.hour_of_day, tc.day_of_week
 ),
 
 -- Calculate daily aggregates with granular time dimensions
@@ -283,7 +283,7 @@ SELECT
       LOGICAL_OR(tc.is_rebuild_operation) AS is_rebuild_operation,
       SUM(CASE WHEN tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS rebuild_cost_usd,
       SUM(CASE WHEN NOT tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS incremental_cost_usd,
-      COUNT(DISTINCT CASE WHEN tc.is_rebuild_operation THEN CONCAT(tc.date, tc.hour_of_day) END) AS rebuild_count
+      COUNTIF(tc.is_rebuild_operation) AS rebuild_count
     FROM table_costs tc
     WHERE 
       tc.date = date
