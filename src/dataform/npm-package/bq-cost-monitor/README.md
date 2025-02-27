@@ -220,4 +220,4 @@ Cross-tabulation of which users/service accounts are querying which datasets:
 
 ## License
 
-ISC
+MIT

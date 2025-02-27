@@ -13,8 +13,8 @@
     "dataform",
     "google-cloud"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Eric Yang",
+  "license": "MIT",
   "peerDependencies": {
     "@dataform/core": "^2.0.0"
   }
