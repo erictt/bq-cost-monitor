@@ -436,44 +436,98 @@ function updateCacheHitChart(data) {
 }
 
 /**
- * Update the table with the current data
+ * Update the query history table with the current data
  * @param {Array} data - The data to use for the table
  */
 function updateTable(data) {
-  // Sort data by date (newest first)
-  const sortedData = [...data].sort((a, b) => {
-    return new Date(b.date) - new Date(a.date);
-  });
-  
-  // Limit to the most recent 10 entries
-  const recentData = sortedData.slice(0, 10);
-  
   // Clear the table
   queriesTableElement.innerHTML = '';
   
+  // Collect all recent queries from all records
+  const allRecentQueries = [];
+  
+  // Process each item
+  data.forEach(item => {
+    // Check if we have recent_queries array
+    if (item.recent_queries && Array.isArray(item.recent_queries)) {
+      // Add date and user info to each query for display
+      item.recent_queries.forEach(query => {
+        allRecentQueries.push({
+          ...query,
+          date: item.date,
+          user: item.user_email || item.service_account || 'Unknown'
+        });
+      });
+    } else {
+      // Legacy data format - create a summary record
+      allRecentQueries.push({
+        job_id: `summary-${item.date}-${item.user_email || item.service_account}`,
+        timestamp: item.date,
+        user: item.user_email || item.service_account || 'Unknown',
+        total_bytes_processed: item.total_bytes_processed,
+        query_cost_usd: item.estimated_cost_usd,
+        cache_hit: item.cache_hit_count > 0,
+        has_error: item.error_count > 0,
+        isSummary: true, // Flag to identify summary records
+        query_count: item.query_count,
+        cache_hit_percentage: item.query_count > 0 ? (item.cache_hit_count / item.query_count) * 100 : 0
+      });
+    }
+  });
+  
+  // Sort all queries by timestamp (newest first)
+  const sortedQueries = allRecentQueries.sort((a, b) => {
+    return new Date(b.timestamp) > new Date(a.timestamp) ? 1 : -1;
+  });
+  
+  // Limit to the most recent 30 entries
+  const recentQueries = sortedQueries.slice(0, 30);
+  
   // Add rows to the table
-  recentData.forEach(item => {
+  recentQueries.forEach(query => {
     const row = document.createElement('tr');
     
-    // Format bytes as GB
-    const bytesGB = (item.total_bytes_processed || 0) / Math.pow(1024, 3);
-    
-    // Calculate cache hit percentage
-    const cacheHitPercentage = item.query_count > 0 
-      ? (item.cache_hit_count / item.query_count) * 100 
-      : 0;
-    
-    row.innerHTML = `
-      <td>${item.date}</td>
-      <td>${item.user_email || item.service_account || 'Unknown'}</td>
-      <td>${item.query_count || 0}</td>
-      <td>${bytesGB.toFixed(2)} GB</td>
-      <td>$${(item.estimated_cost_usd || 0).toFixed(2)}</td>
-      <td>${cacheHitPercentage.toFixed(1)}%</td>
-    `;
+    // Format data differently for summary vs. individual query
+    if (query.isSummary) {
+      // This is a summary record (legacy format)
+      const bytesGB = (query.total_bytes_processed || 0) / Math.pow(1024, 3);
+      
+      row.innerHTML = `
+        <td>${query.timestamp}</td>
+        <td>${query.user}</td>
+        <td>${query.query_count || 0} queries</td>
+        <td>${bytesGB.toFixed(2)} GB</td>
+        <td>$${(query.query_cost_usd || 0).toFixed(2)}</td>
+        <td>${query.cache_hit_percentage.toFixed(1)}%</td>
+      `;
+    } else {
+      // This is an individual query record
+      const bytesGB = (query.total_bytes_processed || 0) / Math.pow(1024, 3);
+      const queryTypeClass = query.has_error ? 'text-danger' : (query.cache_hit ? 'text-success' : '');
+      const queryTypeIcon = query.has_error ? '❌' : (query.cache_hit ? '✓' : '');
+      const truncatedQuery = query.query_text 
+        ? `<span class="text-muted small">${query.query_text.substring(0, 50)}${query.query_text.length > 50 ? '...' : ''}</span>`
+        : '';
+      
+      row.innerHTML = `
+        <td title="${query.timestamp}">${new Date(query.timestamp).toLocaleTimeString()}</td>
+        <td>${query.user}</td>
+        <td><span class="${queryTypeClass}">${query.statement_type || 'QUERY'} ${queryTypeIcon}</span> ${truncatedQuery}</td>
+        <td>${bytesGB.toFixed(2)} GB</td>
+        <td>$${(query.query_cost_usd || 0).toFixed(2)}</td>
+        <td>${query.execution_time_seconds ? `${query.execution_time_seconds.toFixed(1)}s` : 'N/A'}</td>
+      `;
+    }
     
     queriesTableElement.appendChild(row);
   });
+  
+  // If no queries found, show message
+  if (recentQueries.length === 0) {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td colspan="6" class="text-center">No query data available</td>`;
+    queriesTableElement.appendChild(row);
+  }
 }
 
 /**
@@ -838,6 +892,229 @@ function generateSampleData() {
 }
 
 /**
+ * Show time pattern analysis modal
+ */
+function showTimePatternModal() {
+  // Check if we have hourly/daily breakdown data
+  let hasTimeData = false;
+  let hourlyData = [];
+  let dailyData = [];
+  
+  // Collect time pattern data from all records
+  if (costData && costData.length > 0) {
+    costData.forEach(item => {
+      if (item.hourly_breakdown && Array.isArray(item.hourly_breakdown)) {
+        hasTimeData = true;
+        
+        // Aggregate hourly data across all days/users
+        item.hourly_breakdown.forEach(hourData => {
+          const hour = hourData.hour_of_day;
+          const existingHour = hourlyData.find(h => h.hour === hour);
+          
+          if (existingHour) {
+            existingHour.queries += hourData.hourly_queries || 0;
+            existingHour.cost += hourData.hourly_cost || 0;
+          } else {
+            hourlyData.push({
+              hour: hour,
+              queries: hourData.hourly_queries || 0,
+              cost: hourData.hourly_cost || 0
+            });
+          }
+        });
+      }
+      
+      if (item.daily_breakdown && Array.isArray(item.daily_breakdown)) {
+        hasTimeData = true;
+        
+        // Aggregate daily data across all users
+        item.daily_breakdown.forEach(dayData => {
+          const day = dayData.day_of_week;
+          const existingDay = dailyData.find(d => d.day === day);
+          
+          if (existingDay) {
+            existingDay.queries += dayData.daily_queries || 0;
+            existingDay.cost += dayData.daily_cost || 0;
+          } else {
+            dailyData.push({
+              day: day,
+              queries: dayData.daily_queries || 0,
+              cost: dayData.daily_cost || 0
+            });
+          }
+        });
+      }
+    });
+  }
+  
+  // Sort data
+  hourlyData.sort((a, b) => a.hour - b.hour);
+  dailyData.sort((a, b) => a.day - b.day);
+  
+  // Create modal content
+  let modalContent = '';
+  
+  if (hasTimeData) {
+    // Create day names map (day_of_week is 1-7, 1 is Sunday)
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    modalContent = `
+      <div class="modal fade" id="timePatternModal" tabindex="-1" aria-labelledby="timePatternModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="timePatternModalLabel">Query Time Patterns</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row mb-4">
+                <div class="col-12">
+                  <h6>Hourly Distribution</h6>
+                  <div style="height: 300px;">
+                    <canvas id="hourlyPatternChart"></canvas>
+                  </div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-12">
+                  <h6>Day of Week Distribution</h6>
+                  <div style="height: 300px;">
+                    <canvas id="dailyPatternChart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Add modal to the DOM
+    const modalElement = document.createElement('div');
+    modalElement.innerHTML = modalContent;
+    document.body.appendChild(modalElement);
+    
+    // Initialize the modal
+    const modal = new bootstrap.Modal(document.getElementById('timePatternModal'));
+    modal.show();
+    
+    // Create the hourly chart
+    const hourlyCtx = document.getElementById('hourlyPatternChart').getContext('2d');
+    const hourlyChart = new Chart(hourlyCtx, {
+      type: 'bar',
+      data: {
+        labels: hourlyData.map(h => `${h.hour}:00`),
+        datasets: [
+          {
+            label: 'Query Count',
+            data: hourlyData.map(h => h.queries),
+            backgroundColor: 'rgba(13, 110, 253, 0.5)',
+            borderColor: 'rgba(13, 110, 253, 1)',
+            borderWidth: 1,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Cost (USD)',
+            data: hourlyData.map(h => h.cost),
+            backgroundColor: 'rgba(220, 53, 69, 0.5)',
+            borderColor: 'rgba(220, 53, 69, 1)',
+            borderWidth: 1,
+            yAxisID: 'y1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            position: 'left',
+            title: {
+              display: true,
+              text: 'Query Count'
+            }
+          },
+          y1: {
+            beginAtZero: true,
+            position: 'right',
+            title: {
+              display: true,
+              text: 'Cost (USD)'
+            },
+            grid: {
+              drawOnChartArea: false
+            }
+          }
+        }
+      }
+    });
+    
+    // Create the daily chart
+    const dailyCtx = document.getElementById('dailyPatternChart').getContext('2d');
+    const dailyChart = new Chart(dailyCtx, {
+      type: 'bar',
+      data: {
+        labels: dailyData.map(d => dayNames[d.day - 1]),
+        datasets: [
+          {
+            label: 'Query Count',
+            data: dailyData.map(d => d.queries),
+            backgroundColor: 'rgba(13, 110, 253, 0.5)',
+            borderColor: 'rgba(13, 110, 253, 1)',
+            borderWidth: 1,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Cost (USD)',
+            data: dailyData.map(d => d.cost),
+            backgroundColor: 'rgba(220, 53, 69, 0.5)',
+            borderColor: 'rgba(220, 53, 69, 1)',
+            borderWidth: 1,
+            yAxisID: 'y1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            position: 'left',
+            title: {
+              display: true,
+              text: 'Query Count'
+            }
+          },
+          y1: {
+            beginAtZero: true,
+            position: 'right',
+            title: {
+              display: true,
+              text: 'Cost (USD)'
+            },
+            grid: {
+              drawOnChartArea: false
+            }
+          }
+        }
+      }
+    });
+    
+    // Clean up when modal is hidden
+    document.getElementById('timePatternModal').addEventListener('hidden.bs.modal', function () {
+      hourlyChart.destroy();
+      dailyChart.destroy();
+      document.body.removeChild(modalElement);
+    });
+  } else {
+    // No time pattern data available
+    alert('Time pattern data is not available. This feature requires the enhanced version of the cost monitoring query.');
+  }
+}
+
+/**
  * Show an error message
  * @param {string} message - The error message to display
  */
@@ -870,4 +1147,12 @@ function setupEventListeners() {
       updateDashboard();
     });
   });
+  
+  // Time patterns button
+  const timePatternBtn = document.getElementById('showTimePatternBtn');
+  if (timePatternBtn) {
+    timePatternBtn.addEventListener('click', () => {
+      showTimePatternModal();
+    });
+  }
 }

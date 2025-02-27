@@ -1,6 +1,6 @@
 config {
   type: "table",
-  description: "Table containing BigQuery usage and cost data with service account and dataset tracking",
+  description: "Enhanced table containing BigQuery usage and cost data with granular insights",
   columns: {
     date: "Date of the query execution (YYYY-MM-DD)",
     project_id: "Google Cloud project ID",
@@ -14,13 +14,16 @@ config {
     estimated_cost_usd: "Estimated cost in USD based on bytes billed",
     slot_hours: "Total slot hours consumed",
     cache_hit_percentage: "Percentage of queries that used cached results",
-    dataset_costs: "Array of datasets used with their associated costs"
+    hourly_breakdown: "Array containing query count and cost breakdowns by hour of day",
+    daily_breakdown: "Array containing query count and cost breakdowns by day of week",
+    dataset_costs: "Array of datasets used with their associated costs",
+    recent_queries: "Array of recent queries with detailed information for analysis"
   },
   bigquery: {
     partitionBy: "date",
     clusterBy: ["project_id", "user_email"]
   },
-  tags: ["cost", "monitoring", "service-accounts", "datasets"]
+  tags: ["cost", "monitoring", "service-accounts", "datasets", "analytics"]
 }
 
 -- This query uses the cost_query.sql file with parameters
