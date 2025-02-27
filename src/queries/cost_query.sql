@@ -87,16 +87,17 @@ SELECT
   ARRAY(
     SELECT AS STRUCT 
       dc.dataset, 
-      dc.bytes_processed,
-      dc.bytes_billed,
-      dc.dataset_cost_usd
+      SUM(dc.bytes_processed) AS bytes_processed,
+      SUM(dc.bytes_billed) AS bytes_billed,
+      SUM(dc.dataset_cost_usd) AS dataset_cost_usd
     FROM dataset_costs dc
     WHERE 
-      dc.date = FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time)
-      AND dc.project_id = js.project_id
-      AND dc.user_email = js.user_email
-      AND (dc.service_account = js.service_account OR (dc.service_account IS NULL AND js.service_account IS NULL))
-    ORDER BY dc.dataset_cost_usd DESC
+      dc.date = date -- Use the grouped date field
+      AND dc.project_id = project_id -- Use the grouped project_id field
+      AND dc.user_email = user_email -- Use the grouped user_email field
+      AND (dc.service_account = service_account OR (dc.service_account IS NULL AND service_account IS NULL))
+    GROUP BY dc.dataset
+    ORDER BY dataset_cost_usd DESC
   ) AS dataset_costs
 FROM
   job_stats js
