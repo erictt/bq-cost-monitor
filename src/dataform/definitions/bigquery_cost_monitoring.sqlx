@@ -14,10 +14,7 @@ config {
     estimated_cost_usd: "Estimated cost in USD based on bytes billed",
     slot_hours: "Total slot hours consumed",
     cache_hit_percentage: "Percentage of queries that used cached results",
-    hourly_breakdown: "Array containing query count and cost breakdowns by hour of day",
-    daily_breakdown: "Array containing query count and cost breakdowns by day of week",
-    dataset_costs: "Array of datasets used with their associated costs",
-    recent_queries: "Array of recent queries with detailed information for analysis"
+    dataset_costs: "Array of datasets used with their associated costs"
   },
   bigquery: {
     partitionBy: "date",
@@ -26,8 +23,10 @@ config {
   tags: ["cost", "monitoring", "service-accounts", "datasets", "analytics"]
 }
 
--- This query uses the cost_query.sql file with parameters
-WITH job_stats AS (
+-- Completely restructured SQL to avoid correlated subqueries
+WITH 
+-- Extract basic job information
+job_stats AS (
   SELECT
     project_id,
     user_email,
@@ -46,9 +45,7 @@ WITH job_stats AS (
     total_slot_ms,
     error_result,
     cache_hit,
-    destination_table,
     referenced_tables,
-    labels,
     -- Extract dataset information from referenced tables
     ARRAY(
       SELECT DISTINCT 
@@ -67,51 +64,60 @@ WITH job_stats AS (
     AND statement_type != 'SCRIPT'
 ),
 
--- Create a date dimension for each job to avoid GROUP BY issues
-job_dates AS (
-  SELECT
-    job_id,
-    FORMAT_TIMESTAMP('%Y-%m-%d', creation_time) AS date,
-    project_id,
-    user_email,
-    service_account
-  FROM job_stats
-),
-
--- Calculate per-dataset costs by attributing the cost of each query proportionally
+-- Calculate per-dataset costs
 dataset_costs AS (
   SELECT
-    jd.date,
-    jd.project_id,
-    jd.user_email,
-    jd.service_account,
+    FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time) AS date,
+    js.project_id,
+    js.user_email,
+    js.service_account,
     dataset,
     -- Count queries referencing this dataset
     COUNT(*) AS query_count,
     -- Sum bytes processed, attributed proportionally if multiple datasets are involved
     SUM(js.total_bytes_processed / ARRAY_LENGTH(js.referenced_datasets)) AS bytes_processed,
     SUM(js.total_bytes_billed / ARRAY_LENGTH(js.referenced_datasets)) AS bytes_billed,
-    -- Calculate approximate dataset cost (using the configurable cost per TB)
+    -- Calculate approximate dataset cost
     ROUND(SUM(js.total_bytes_billed / ARRAY_LENGTH(js.referenced_datasets)) / 
           POWER(1024, 4) * ${dataform.projectConfig.vars.cost_per_terabyte}, 2) AS dataset_cost_usd
   FROM
-    job_dates jd
-  JOIN 
-    job_stats js ON jd.job_id = js.job_id,
+    job_stats js,
     UNNEST(js.referenced_datasets) AS dataset
   WHERE
     ARRAY_LENGTH(js.referenced_datasets) > 0
   GROUP BY
-    jd.date, jd.project_id, jd.user_email, jd.service_account, dataset
-)
+    date, js.project_id, js.user_email, js.service_account, dataset
+),
 
--- First, create a derived stats table with all basic metrics
-WITH query_stats AS (
+-- Precompute aggregated dataset costs
+aggregated_dataset_costs AS (
   SELECT
-    jd.date,
-    jd.project_id,
-    jd.user_email,
-    jd.service_account,
+    dc.date,
+    dc.project_id,
+    dc.user_email,
+    dc.service_account,
+    ARRAY_AGG(
+      STRUCT(
+        dc.dataset,
+        dc.bytes_processed,
+        dc.bytes_billed,
+        dc.dataset_cost_usd
+      )
+      ORDER BY dc.dataset_cost_usd DESC
+    ) AS dataset_costs
+  FROM
+    dataset_costs dc
+  GROUP BY
+    dc.date, dc.project_id, dc.user_email, dc.service_account
+),
+
+-- Compute user daily stats
+user_stats AS (
+  SELECT
+    FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time) AS date,
+    js.project_id,
+    js.user_email,
+    js.service_account,
     COUNT(*) AS query_count,
     SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) AS cache_hit_count,
     SUM(CASE WHEN js.error_result IS NOT NULL THEN 1 ELSE 0 END) AS error_count,
@@ -121,58 +127,34 @@ WITH query_stats AS (
     SUM(js.total_slot_ms) / 1000 / 3600 AS slot_hours,
     ROUND(SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100, 2) AS cache_hit_percentage
   FROM
-    job_dates jd
-  JOIN
-    job_stats js ON jd.job_id = js.job_id
+    job_stats js
   GROUP BY
-    jd.date, jd.project_id, jd.user_email, jd.service_account
-),
-
--- Pre-aggregated datasets - no correlated subqueries
-aggregated_datasets AS (
-  SELECT
-    dc.date,
-    dc.project_id,
-    dc.user_email,
-    dc.service_account,
-    ARRAY_AGG(
-      STRUCT(
-        dc.dataset,
-        SUM(dc.bytes_processed) AS bytes_processed,
-        SUM(dc.bytes_billed) AS bytes_billed,
-        SUM(dc.dataset_cost_usd) AS dataset_cost_usd
-      )
-      ORDER BY SUM(dc.dataset_cost_usd) DESC
-    ) AS dataset_costs
-  FROM
-    dataset_costs dc
-  GROUP BY
-    dc.date, dc.project_id, dc.user_email, dc.service_account
+    date, js.project_id, js.user_email, js.service_account
 )
 
--- Main query joining the aggregated data
+-- Final join of user stats with dataset costs
 SELECT
-  qs.date,
-  qs.project_id,
-  qs.user_email,
-  qs.service_account,
-  qs.query_count,
-  qs.cache_hit_count,
-  qs.error_count,
-  qs.total_bytes_processed,
-  qs.total_bytes_billed,
-  qs.estimated_cost_usd,
-  qs.slot_hours,
-  qs.cache_hit_percentage,
-  -- Join the pre-aggregated datasets
-  ad.dataset_costs
+  us.date,
+  us.project_id,
+  us.user_email,
+  us.service_account,
+  us.query_count,
+  us.cache_hit_count,
+  us.error_count,
+  us.total_bytes_processed,
+  us.total_bytes_billed,
+  us.estimated_cost_usd,
+  us.slot_hours,
+  us.cache_hit_percentage,
+  -- Join the pre-aggregated dataset costs
+  IFNULL(adc.dataset_costs, []) AS dataset_costs
 FROM
-  query_stats qs
+  user_stats us
 LEFT JOIN
-  aggregated_datasets ad
-  ON qs.date = ad.date
-  AND qs.project_id = ad.project_id
-  AND qs.user_email = ad.user_email
-  AND (qs.service_account = ad.service_account OR (qs.service_account IS NULL AND ad.service_account IS NULL))
+  aggregated_dataset_costs adc
+  ON us.date = adc.date
+  AND us.project_id = adc.project_id
+  AND us.user_email = adc.user_email
+  AND (us.service_account = adc.service_account OR (us.service_account IS NULL AND adc.service_account IS NULL))
 ORDER BY
-  qs.date DESC, qs.estimated_cost_usd DESC
+  us.date DESC, us.estimated_cost_usd DESC
