@@ -465,7 +465,7 @@ function updateTable(data) {
     
     row.innerHTML = `
       <td>${item.date}</td>
-      <td>${item.user_email || 'Unknown'}</td>
+      <td>${item.user_email || item.service_account || 'Unknown'}</td>
       <td>${item.query_count || 0}</td>
       <td>${bytesGB.toFixed(2)} GB</td>
       <td>$${(item.estimated_cost_usd || 0).toFixed(2)}</td>
@@ -473,26 +473,6 @@ function updateTable(data) {
     `;
     
     queriesTableElement.appendChild(row);
-  });
-}
-
-/**
- * Set up event listeners for the dashboard
- */
-function setupEventListeners() {
-  // Period selection buttons
-  periodButtons.forEach(button => {
-    button.addEventListener('click', () => {
-      // Update active state
-      periodButtons.forEach(btn => btn.classList.remove('active'));
-      button.classList.add('active');
-      
-      // Update active period
-      activePeriod = parseInt(button.dataset.period, 10);
-      
-      // Update dashboard with new period
-      updateDashboard();
-    });
   });
 }
 
@@ -650,36 +630,6 @@ function updateDatasetTable(data) {
     if (typeof value !== 'number' || isNaN(value)) return '$0.00';
     // Use toLocaleString for proper currency formatting with commas
     return '$' + value.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  };
-  
-  const formatPercentage = (value, total) => {
-    if (typeof value !== 'number' || typeof total !== 'number' || 
-        isNaN(value) || isNaN(total) || total === 0) {
-      return '0.0%';
-    }
-    
-    const percentage = (value / total) * 100;
-    // Cap at 100% for display purposes if it somehow exceeds 100%
-    const cappedPercentage = Math.min(percentage, 100);
-    return cappedPercentage.toFixed(1) + '%';
-  };
-  
-  // Add rows to the table
-  sortedDatasets.forEach(([dataset, data]) => {
-    const row = document.createElement('tr');
-    
-    row.innerHTML = `
-      <td><code>${dataset}</code></td>
-      <td>${formatBytes(data.bytes)}</td>
-      <td>${formatCurrency(data.cost)}</td>
-      <td>${formatPercentage(data.cost, totalCost)}</td>
-    `;
-    
-    datasetTableElement.appendChild(row);
-  });$' + value.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     });
@@ -894,4 +844,24 @@ function generateSampleData() {
 function showError(message) {
   console.error(message);
   alert(message);
+}
+
+/**
+ * Set up event listeners for the dashboard
+ */
+function setupEventListeners() {
+  // Period selection buttons
+  periodButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      // Update active state
+      periodButtons.forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+      
+      // Update active period
+      activePeriod = parseInt(button.dataset.period, 10);
+      
+      // Update dashboard with new period
+      updateDashboard();
+    });
+  });
 }
