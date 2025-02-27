@@ -32,20 +32,6 @@ bq-cost-monitor/
 ├── config/                  # Configuration files
 │   └── projects.json.example # Example project settings
 ├── dataform/                # Dataform npm package
-│   ├── examples/            # Example usage
-│   │   └── cost-monitor.js  # Example implementation
-│   ├── src/                 # Package source code
-│   │   ├── index.js         # Package entry point
-│   │   ├── tables/          # Table definitions
-│   │   │   ├── cost_monitoring.js      # Main cost table
-│   │   │   ├── daily_summary.js        # Daily summary view
-│   │   │   ├── dataset_summary.js      # Dataset summary view
-│   │   │   ├── service_account_summary.js # Service account view
-│   │   │   └── user_attribution.js     # User attribution table
-│   │   └── utils/           # Utilities
-│   │       └── query_optimization.js   # Query optimization
-│   ├── package.json         # Package manifest
-│   └── README.md            # Package documentation
 ├── src/
 │   ├── common/              # Shared utilities
 │   │   ├── formatters.js    # Formatting utilities
