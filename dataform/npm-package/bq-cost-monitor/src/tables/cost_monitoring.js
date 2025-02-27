@@ -1,8 +1,10 @@
 /**
- * BigQuery Cost Monitoring Table Definition
+ * Modified BigQuery Cost Monitoring Table Definition
  * 
  * This module defines the main cost monitoring table that collects and analyzes
  * BigQuery usage data from INFORMATION_SCHEMA.JOBS.
+ * 
+ * This version uses explicit table references instead of the ref() function.
  */
 
 /**
@@ -13,6 +15,7 @@
  * @param {string} options.name - The name of the table
  * @param {number} options.historyDays - Number of days of history to include
  * @param {number} options.costPerTerabyte - Cost per terabyte of data processed
+ * @param {string} options.projectDatabase - The project database to use (optional)
  * @returns {Object} - The created table declaration
  */
 function createCostMonitoringTable(ctx, options) {
@@ -20,8 +23,13 @@ function createCostMonitoringTable(ctx, options) {
     schema,
     name,
     historyDays,
-    costPerTerabyte
+    costPerTerabyte,
+    projectDatabase
   } = options;
+  
+  // Determine which project database to use
+  const database = projectDatabase || ctx.projectConfig.defaultDatabase;
+  const fullDatabaseName = `\`${database}.INFORMATION_SCHEMA.JOBS\``;
   
   // Create the table
   const table = ctx.publish(schema, name)
@@ -50,7 +58,7 @@ function createCostMonitoringTable(ctx, options) {
     dataset_costs: "Array of datasets used with their associated costs"
   });
   
-  // Set the query
+  // Set the query - Uses explicit table references without ref() function
   table.query(ctx => `
     -- Completely restructured SQL to avoid correlated subqueries
     WITH 
@@ -86,11 +94,15 @@ function createCostMonitoringTable(ctx, options) {
             AND ref_table.dataset_id IS NOT NULL
         ) AS referenced_datasets
       FROM
-        \${ref("INFORMATION_SCHEMA.JOBS")}
+        ${fullDatabaseName}
       WHERE
         creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${historyDays} DAY)
         AND job_type = 'QUERY'
         AND statement_type != 'SCRIPT'
+        -- Add filters to reduce data processed
+        AND total_bytes_processed > 0
+        -- Exclude small queries that don't contribute significantly to costs
+        AND total_bytes_processed > 1000000
     ),
 
     -- Calculate per-dataset costs

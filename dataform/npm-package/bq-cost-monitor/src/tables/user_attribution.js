@@ -45,7 +45,8 @@ function createUserDatasetAttributionTable(ctx, options) {
     pct_of_dataset_cost: "Percentage of dataset's total cost that comes from this user"
   });
   
-  // Set the query
+  // Set the query - Uses explicit table references without ref() function
+  const fullTableName = `\`${schema}.${sourceTable}\``;
   table.query(ctx => `
     -- Extract user-dataset relationships from the cost monitoring data
     WITH user_dataset_data AS (
@@ -62,7 +63,7 @@ function createUserDatasetAttributionTable(ctx, options) {
         ds.dataset_cost_usd AS cost_usd,
         COUNT(*) AS query_count
       FROM 
-        \${ref(schema + "." + sourceTable)} cm,
+        ${fullTableName} cm,
         UNNEST(cm.dataset_costs) AS ds
       GROUP BY
         cm.date, cm.project_id, user, is_service_account, dataset_name, ds.bytes_processed, ds.dataset_cost_usd

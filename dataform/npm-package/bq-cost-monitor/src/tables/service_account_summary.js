@@ -41,7 +41,8 @@ function createServiceAccountSummaryView(ctx, options) {
     top_datasets: "Array of most expensive datasets used by this service account"
   });
   
-  // Set the query
+  // Set the query - Uses explicit table references without ref() function
+  const fullTableName = `\`${schema}.${sourceTable}\``;
   view.query(ctx => `
     -- Service account cost summary
     SELECT
@@ -59,7 +60,7 @@ function createServiceAccountSummaryView(ctx, options) {
           SUM(dataset_entry.dataset_cost_usd) AS dataset_cost_usd,
           SUM(dataset_entry.bytes_processed) AS dataset_bytes_processed
         FROM 
-          \${ref(schema + "." + sourceTable)} costs,
+          ${fullTableName} costs,
           UNNEST(costs.dataset_costs) AS dataset_entry
         WHERE
           costs.date = main.date
@@ -72,7 +73,7 @@ function createServiceAccountSummaryView(ctx, options) {
         LIMIT 10
       ) AS top_datasets
     FROM
-      \${ref(schema + "." + sourceTable)} main
+      ${fullTableName} main
     WHERE
       service_account IS NOT NULL
     GROUP BY

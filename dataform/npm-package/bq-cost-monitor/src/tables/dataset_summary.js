@@ -41,7 +41,8 @@ function createDatasetSummaryView(ctx, options) {
     top_users: "Array of users/service accounts with highest usage of this dataset"
   });
   
-  // Set the query
+  // Set the query - Uses explicit table references without ref() function
+  const fullTableName = `\`${schema}.${sourceTable}\``;
   view.query(ctx => `
     -- Dataset cost summary
     WITH dataset_usage AS (
@@ -55,7 +56,7 @@ function createDatasetSummaryView(ctx, options) {
         dataset_entry.bytes_processed,
         dataset_entry.bytes_billed
       FROM 
-        \${ref(schema + "." + sourceTable)} costs,
+        ${fullTableName} costs,
         UNNEST(costs.dataset_costs) AS dataset_entry
     )
 

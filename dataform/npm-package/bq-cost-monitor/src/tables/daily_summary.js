@@ -41,7 +41,8 @@ function createDailySummaryView(ctx, options) {
     avg_cache_hit_percentage: "Average percentage of queries that used cached results"
   });
   
-  // Set the query
+  // Set the query - Uses explicit table references without ref() function
+  const fullTableName = `\`${schema}.${sourceTable}\``;
   view.query(ctx => `
     SELECT
       date,
@@ -55,7 +56,7 @@ function createDailySummaryView(ctx, options) {
       SUM(slot_hours) AS total_slot_hours,
       ROUND(AVG(cache_hit_percentage), 2) AS avg_cache_hit_percentage
     FROM
-      \${ref(schema + "." + sourceTable)}
+      ${fullTableName}
     GROUP BY
       date, project_id
     ORDER BY

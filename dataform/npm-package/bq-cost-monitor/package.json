@@ -1,6 +1,6 @@
 {
-  "name": "bq-cost-monitor",
-  "version": "1.0.0",
+  "name": "bq-cost-monitoring",
+  "version": "1.1.6",
   "description": "BigQuery cost monitoring solution for Dataform projects",
   "main": "src/index.js",
   "scripts": {
@@ -17,5 +17,8 @@
   "license": "MIT",
   "peerDependencies": {
     "@dataform/core": "^2.0.0"
+  },
+  "directories": {
+    "example": "examples"
   }
 }
