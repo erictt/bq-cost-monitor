@@ -105,59 +105,74 @@ dataset_costs AS (
     jd.date, jd.project_id, jd.user_email, jd.service_account, dataset
 )
 
--- Main query with user and service account attribution
-SELECT
-  jd.date,
-  jd.project_id,
-  jd.user_email,
-  jd.service_account,
-  -- Query stats
-  COUNT(*) AS query_count,
-  SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) AS cache_hit_count,
-  SUM(CASE WHEN js.error_result IS NOT NULL THEN 1 ELSE 0 END) AS error_count,
-  SUM(js.total_bytes_processed) AS total_bytes_processed,
-  SUM(js.total_bytes_billed) AS total_bytes_billed,
-  -- Calculate approximate cost (using the configurable cost per TB)
-  ROUND(SUM(js.total_bytes_billed) / POWER(1024, 4) * ${dataform.projectConfig.vars.cost_per_terabyte}, 2) AS estimated_cost_usd,
-  SUM(js.total_slot_ms) / 1000 / 3600 AS slot_hours,
-  -- Calculate cache efficiency
-  ROUND(SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100, 2) AS cache_hit_percentage,
-  -- Pre-aggregated dataset costs using a join pattern instead of a correlated subquery
-  (
-    SELECT ARRAY_AGG(
+-- First, create a derived stats table with all basic metrics
+WITH query_stats AS (
+  SELECT
+    jd.date,
+    jd.project_id,
+    jd.user_email,
+    jd.service_account,
+    COUNT(*) AS query_count,
+    SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) AS cache_hit_count,
+    SUM(CASE WHEN js.error_result IS NOT NULL THEN 1 ELSE 0 END) AS error_count,
+    SUM(js.total_bytes_processed) AS total_bytes_processed,
+    SUM(js.total_bytes_billed) AS total_bytes_billed,
+    ROUND(SUM(js.total_bytes_billed) / POWER(1024, 4) * ${dataform.projectConfig.vars.cost_per_terabyte}, 2) AS estimated_cost_usd,
+    SUM(js.total_slot_ms) / 1000 / 3600 AS slot_hours,
+    ROUND(SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100, 2) AS cache_hit_percentage
+  FROM
+    job_dates jd
+  JOIN
+    job_stats js ON jd.job_id = js.job_id
+  GROUP BY
+    jd.date, jd.project_id, jd.user_email, jd.service_account
+),
+
+-- Pre-aggregated datasets - no correlated subqueries
+aggregated_datasets AS (
+  SELECT
+    dc.date,
+    dc.project_id,
+    dc.user_email,
+    dc.service_account,
+    ARRAY_AGG(
       STRUCT(
-        agg_dc.dataset, 
-        agg_dc.bytes_processed,
-        agg_dc.bytes_billed,
-        agg_dc.dataset_cost_usd
-      )
-      ORDER BY agg_dc.dataset_cost_usd DESC
-    )
-    FROM (
-      SELECT
-        dc.date,
-        dc.project_id,
-        dc.user_email,
-        dc.service_account,
         dc.dataset,
         SUM(dc.bytes_processed) AS bytes_processed,
         SUM(dc.bytes_billed) AS bytes_billed,
         SUM(dc.dataset_cost_usd) AS dataset_cost_usd
-      FROM dataset_costs dc
-      GROUP BY
-        dc.date, dc.project_id, dc.user_email, dc.service_account, dc.dataset
-    ) agg_dc
-    WHERE 
-      agg_dc.date = jd.date
-      AND agg_dc.project_id = jd.project_id
-      AND agg_dc.user_email = jd.user_email
-      AND (agg_dc.service_account = jd.service_account OR (agg_dc.service_account IS NULL AND jd.service_account IS NULL))
-  ) AS dataset_costs
+      )
+      ORDER BY SUM(dc.dataset_cost_usd) DESC
+    ) AS dataset_costs
+  FROM
+    dataset_costs dc
+  GROUP BY
+    dc.date, dc.project_id, dc.user_email, dc.service_account
+)
+
+-- Main query joining the aggregated data
+SELECT
+  qs.date,
+  qs.project_id,
+  qs.user_email,
+  qs.service_account,
+  qs.query_count,
+  qs.cache_hit_count,
+  qs.error_count,
+  qs.total_bytes_processed,
+  qs.total_bytes_billed,
+  qs.estimated_cost_usd,
+  qs.slot_hours,
+  qs.cache_hit_percentage,
+  -- Join the pre-aggregated datasets
+  ad.dataset_costs
 FROM
-  job_dates jd
-JOIN
-  job_stats js ON jd.job_id = js.job_id
-GROUP BY
-  jd.date, jd.project_id, jd.user_email, jd.service_account
+  query_stats qs
+LEFT JOIN
+  aggregated_datasets ad
+  ON qs.date = ad.date
+  AND qs.project_id = ad.project_id
+  AND qs.user_email = ad.user_email
+  AND (qs.service_account = ad.service_account OR (qs.service_account IS NULL AND ad.service_account IS NULL))
 ORDER BY
-  jd.date DESC, estimated_cost_usd DESC
+  qs.date DESC, qs.estimated_cost_usd DESC
