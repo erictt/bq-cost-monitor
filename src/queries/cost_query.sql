@@ -32,7 +32,7 @@ WITH job_stats AS (
     EXTRACT(DAYOFWEEK FROM creation_time) AS day_of_week,
     -- Query execution time in seconds
     TIMESTAMP_DIFF(end_time, creation_time, SECOND) AS execution_time_seconds,
-    -- Extract dataset information from referenced tables
+    -- Extract dataset and table information from referenced tables
     ARRAY(
       SELECT DISTINCT 
         CONCAT(ref_table.project_id, '.', ref_table.dataset_id)
@@ -41,7 +41,30 @@ WITH job_stats AS (
       WHERE 
         ref_table.project_id IS NOT NULL 
         AND ref_table.dataset_id IS NOT NULL
-    ) AS referenced_datasets
+    ) AS referenced_datasets,
+    -- Extract full table information with table_id
+    ARRAY(
+      SELECT AS STRUCT
+        ref_table.project_id,
+        ref_table.dataset_id,
+        ref_table.table_id,
+        CONCAT(ref_table.project_id, '.', ref_table.dataset_id, '.', ref_table.table_id) AS full_table_name
+      FROM 
+        UNNEST(referenced_tables) AS ref_table
+      WHERE 
+        ref_table.project_id IS NOT NULL 
+        AND ref_table.dataset_id IS NOT NULL
+        AND ref_table.table_id IS NOT NULL
+    ) AS referenced_tables_detail,
+    -- Determine if this is potentially a table rebuild operation
+    (destination_table IS NOT NULL AND 
+     ARRAY_LENGTH(ARRAY(
+       SELECT 1 
+       FROM UNNEST(referenced_tables) AS ref 
+       WHERE ref.table_id = destination_table.table_id
+       AND ref.dataset_id = destination_table.dataset_id
+     )) > 0
+    ) AS is_table_rebuild
   FROM
     `region-us`.INFORMATION_SCHEMA.JOBS
   WHERE
@@ -82,29 +105,63 @@ query_details AS (
     job_stats
 ),
 
--- Calculate per-dataset costs by attributing the cost of each query proportionally
-dataset_costs AS (
+-- Calculate per-table costs by attributing the cost of each query proportionally
+table_costs AS (
   SELECT
     FORMAT_TIMESTAMP('%Y-%m-%d', creation_time) AS date,
     project_id,
     user_email,
     service_account,
-    dataset,
+    table_detail.full_table_name AS table_name,
+    table_detail.project_id AS table_project,
+    table_detail.dataset_id AS table_dataset,
+    table_detail.table_id AS table_id,
+    hour_of_day,
+    day_of_week,
+    -- Count queries referencing this table
+    COUNT(*) AS query_count,
+    -- Record if this table is being rebuilt (destination matches referenced)
+    LOGICAL_OR(is_table_rebuild AND 
+               destination_table.dataset_id = table_detail.dataset_id AND 
+               destination_table.table_id = table_detail.table_id) AS is_rebuild_operation,
+    -- Sum bytes processed, attributed proportionally if multiple tables are involved
+    SUM(total_bytes_processed / ARRAY_LENGTH(referenced_tables_detail)) AS bytes_processed,
+    SUM(total_bytes_billed / ARRAY_LENGTH(referenced_tables_detail)) AS bytes_billed,
+    -- Calculate approximate table cost (using the configurable cost per TB)
+    ROUND(SUM(total_bytes_billed / ARRAY_LENGTH(referenced_tables_detail)) / 
+          POWER(1024, 4) * @cost_per_terabyte, 2) AS table_cost_usd
+  FROM
+    job_stats,
+    UNNEST(referenced_tables_detail) AS table_detail
+  WHERE
+    ARRAY_LENGTH(referenced_tables_detail) > 0
+  GROUP BY
+    date, project_id, user_email, service_account, 
+    table_name, table_project, table_dataset, table_id, 
+    hour_of_day, day_of_week
+),
+
+-- Calculate per-dataset costs by aggregating table costs
+dataset_costs AS (
+  SELECT
+    date,
+    project_id,
+    user_email,
+    service_account,
+    CONCAT(table_project, '.', table_dataset) AS dataset,
     hour_of_day,
     day_of_week,
     -- Count queries referencing this dataset
-    COUNT(*) AS query_count,
-    -- Sum bytes processed, attributed proportionally if multiple datasets are involved
-    SUM(total_bytes_processed / ARRAY_LENGTH(referenced_datasets)) AS bytes_processed,
-    SUM(total_bytes_billed / ARRAY_LENGTH(referenced_datasets)) AS bytes_billed,
-    -- Calculate approximate dataset cost (using the configurable cost per TB)
-    ROUND(SUM(total_bytes_billed / ARRAY_LENGTH(referenced_datasets)) / 
-          POWER(1024, 4) * @cost_per_terabyte, 2) AS dataset_cost_usd
+    SUM(query_count) AS query_count,
+    -- Sum bytes processed
+    SUM(bytes_processed) AS bytes_processed,
+    SUM(bytes_billed) AS bytes_billed,
+    -- Calculate approximate dataset cost
+    SUM(table_cost_usd) AS dataset_cost_usd,
+    -- Count rebuild operations
+    SUM(CASE WHEN is_rebuild_operation THEN 1 ELSE 0 END) AS rebuild_operations
   FROM
-    job_stats,
-    UNNEST(referenced_datasets) AS dataset
-  WHERE
-    ARRAY_LENGTH(referenced_datasets) > 0
+    table_costs
   GROUP BY
     date, project_id, user_email, service_account, dataset, hour_of_day, day_of_week
 ),
@@ -202,7 +259,8 @@ SELECT
       ds.dataset,
       SUM(ds.bytes_processed) AS bytes_processed,
       SUM(ds.bytes_billed) AS bytes_billed,
-      SUM(ds.dataset_cost_usd) AS dataset_cost_usd
+      SUM(ds.dataset_cost_usd) AS dataset_cost_usd,
+      SUM(ds.rebuild_operations) AS rebuild_operations
     FROM daily_aggregates d, UNNEST(d.dataset_costs) AS ds
     WHERE 
       d.date = date
@@ -212,6 +270,32 @@ SELECT
     GROUP BY ds.dataset
     ORDER BY dataset_cost_usd DESC
   ) AS dataset_costs,
+  
+  -- Include all table costs with rebuild information
+  ARRAY(
+    SELECT AS STRUCT
+      tc.table_name,
+      tc.table_id,
+      CONCAT(tc.table_project, '.', tc.table_dataset) AS dataset_name,
+      SUM(tc.bytes_processed) AS bytes_processed,
+      SUM(tc.bytes_billed) AS bytes_billed,
+      SUM(tc.table_cost_usd) AS table_cost_usd,
+      LOGICAL_OR(tc.is_rebuild_operation) AS is_rebuild_operation,
+      SUM(CASE WHEN tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS rebuild_cost_usd,
+      SUM(CASE WHEN NOT tc.is_rebuild_operation THEN tc.table_cost_usd ELSE 0 END) AS incremental_cost_usd,
+      COUNT(DISTINCT CASE WHEN tc.is_rebuild_operation THEN CONCAT(tc.date, tc.hour_of_day) END) AS rebuild_count
+    FROM table_costs tc
+    WHERE 
+      tc.date = date
+      AND tc.project_id = project_id
+      AND tc.user_email = user_email
+      AND (tc.service_account = service_account OR (tc.service_account IS NULL AND service_account IS NULL))
+    GROUP BY 
+      tc.table_name, tc.table_id, dataset_name
+    ORDER BY 
+      table_cost_usd DESC
+    LIMIT 100
+  ) AS table_costs,
   -- Include all individual queries for detailed exploration
   (
     SELECT ARRAY_AGG(

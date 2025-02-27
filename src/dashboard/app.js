@@ -1115,6 +1115,273 @@ function showTimePatternModal() {
 }
 
 /**
+ * Show table details modal with rebuild vs incremental costs
+ */
+function showTableDetailsModal() {
+  // Check if we have table costs data
+  let hasTableData = false;
+  let tableData = [];
+  
+  // Collect all table costs
+  if (costData && costData.length > 0) {
+    costData.forEach(item => {
+      if (item.table_costs && Array.isArray(item.table_costs)) {
+        hasTableData = true;
+        
+        // Extract and normalize table data
+        item.table_costs.forEach(table => {
+          const existingTable = tableData.find(t => t.table_name === table.table_name);
+          
+          if (existingTable) {
+            // Update existing table entry
+            existingTable.total_cost += table.table_cost_usd || 0;
+            existingTable.rebuild_cost += table.rebuild_cost_usd || 0;
+            existingTable.incremental_cost += table.incremental_cost_usd || 0;
+            existingTable.bytes_processed += table.bytes_processed || 0;
+            existingTable.rebuild_count += table.rebuild_count || 0;
+          } else {
+            // Add new table entry
+            tableData.push({
+              table_name: table.table_name,
+              dataset_name: table.dataset_name,
+              table_id: table.table_id,
+              total_cost: table.table_cost_usd || 0,
+              rebuild_cost: table.rebuild_cost_usd || 0,
+              incremental_cost: table.incremental_cost_usd || 0,
+              bytes_processed: table.bytes_processed || 0,
+              rebuild_count: table.rebuild_count || 0,
+              is_rebuild_operation: table.is_rebuild_operation || false
+            });
+          }
+        });
+      }
+    });
+  }
+  
+  // Sort tables by total cost
+  tableData.sort((a, b) => b.total_cost - a.total_cost);
+  
+  // Limit to top 100 tables
+  tableData = tableData.slice(0, 100);
+  
+  // Create modal content
+  let modalContent = '';
+  
+  if (hasTableData) {
+    modalContent = `
+      <div class="modal fade" id="tableDetailsModal" tabindex="-1" aria-labelledby="tableDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="tableDetailsModalLabel">Table Cost Details</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                  <thead>
+                    <tr>
+                      <th>Table</th>
+                      <th>Dataset</th>
+                      <th>Total Cost</th>
+                      <th>Rebuild Cost</th>
+                      <th>Incremental Cost</th>
+                      <th>% Rebuild</th>
+                      <th>Rebuild Count</th>
+                      <th>Data Processed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${tableData.map(table => {
+                      const rebuildPercent = table.total_cost > 0 
+                        ? (table.rebuild_cost / table.total_cost * 100) 
+                        : 0;
+                      
+                      // Format bytes
+                      const bytesFormatted = formatBytes(table.bytes_processed);
+                      
+                      // Determine row class based on rebuild percentage
+                      const rowClass = rebuildPercent > 80 ? 'table-danger' : 
+                                      (rebuildPercent > 50 ? 'table-warning' : '');
+                      
+                      return `
+                        <tr class="${rowClass}">
+                          <td><code>${table.table_id}</code></td>
+                          <td>${table.dataset_name}</td>
+                          <td>${formatCurrency(table.total_cost)}</td>
+                          <td>${formatCurrency(table.rebuild_cost)}</td>
+                          <td>${formatCurrency(table.incremental_cost)}</td>
+                          <td>${rebuildPercent.toFixed(1)}%</td>
+                          <td>${table.rebuild_count}</td>
+                          <td>${bytesFormatted}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <div class="text-muted small">
+                <ul class="mb-0">
+                  <li>Rows in <span class="text-danger">red</span> have >80% of costs from rebuilds</li>
+                  <li>Rows in <span class="text-warning">yellow</span> have >50% of costs from rebuilds</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Add modal to the DOM
+    const modalElement = document.createElement('div');
+    modalElement.innerHTML = modalContent;
+    document.body.appendChild(modalElement);
+    
+    // Initialize the modal
+    const modal = new bootstrap.Modal(document.getElementById('tableDetailsModal'));
+    modal.show();
+    
+    // Clean up when modal is hidden
+    document.getElementById('tableDetailsModal').addEventListener('hidden.bs.modal', function () {
+      document.body.removeChild(modalElement);
+    });
+  } else {
+    // No table data available
+    alert('Table details are not available. This feature requires the enhanced version of the cost monitoring query.');
+  }
+}
+
+/**
+ * Show user-dataset attribution modal
+ */
+function showUserDatasetModal() {
+  // Check if we have dataset costs with user information
+  let hasUserDatasetData = false;
+  const userDatasetMap = new Map(); // Map of user+dataset to cost
+  
+  // Collect user-dataset attribution data
+  if (costData && costData.length > 0) {
+    costData.forEach(item => {
+      // Get user/service account
+      const user = item.service_account || item.user_email || 'Unknown';
+      const isServiceAccount = !!item.service_account;
+      
+      if (item.dataset_costs && Array.isArray(item.dataset_costs)) {
+        item.dataset_costs.forEach(ds => {
+          hasUserDatasetData = true;
+          
+          // Create a unique key for this user+dataset
+          const key = `${user}|${ds.dataset}`;
+          
+          if (userDatasetMap.has(key)) {
+            // Update existing entry
+            const entry = userDatasetMap.get(key);
+            entry.cost += ds.dataset_cost_usd || 0;
+            entry.bytes += ds.bytes_processed || 0;
+          } else {
+            // Add new entry
+            userDatasetMap.set(key, {
+              user: user,
+              isServiceAccount: isServiceAccount,
+              dataset: ds.dataset,
+              cost: ds.dataset_cost_usd || 0,
+              bytes: ds.bytes_processed || 0
+            });
+          }
+        });
+      }
+    });
+  }
+  
+  // Convert map to array and sort by cost
+  let userDatasetArray = Array.from(userDatasetMap.values());
+  userDatasetArray.sort((a, b) => b.cost - a.cost);
+  
+  // Limit to top 100 entries
+  userDatasetArray = userDatasetArray.slice(0, 100);
+  
+  // Create modal content
+  let modalContent = '';
+  
+  if (hasUserDatasetData) {
+    modalContent = `
+      <div class="modal fade" id="userDatasetModal" tabindex="-1" aria-labelledby="userDatasetModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="userDatasetModalLabel">User-Dataset Attribution</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                  <thead>
+                    <tr>
+                      <th>User/Service Account</th>
+                      <th>Type</th>
+                      <th>Dataset</th>
+                      <th>Cost (USD)</th>
+                      <th>Data Processed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${userDatasetArray.map(entry => {
+                      // Format values
+                      const bytesFormatted = formatBytes(entry.bytes);
+                      const costFormatted = formatCurrency(entry.cost);
+                      
+                      // Format user display (shorter)
+                      const userDisplay = entry.user.split('@')[0];
+                      const userType = entry.isServiceAccount ? 
+                        '<span class="badge bg-danger">Service Account</span>' : 
+                        '<span class="badge bg-primary">User</span>';
+                      
+                      return `
+                        <tr>
+                          <td><code>${userDisplay}</code></td>
+                          <td>${userType}</td>
+                          <td>${entry.dataset}</td>
+                          <td>${costFormatted}</td>
+                          <td>${bytesFormatted}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <div class="text-muted small">
+                Shows which users and service accounts are querying each dataset and the associated costs.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Add modal to the DOM
+    const modalElement = document.createElement('div');
+    modalElement.innerHTML = modalContent;
+    document.body.appendChild(modalElement);
+    
+    // Initialize the modal
+    const modal = new bootstrap.Modal(document.getElementById('userDatasetModal'));
+    modal.show();
+    
+    // Clean up when modal is hidden
+    document.getElementById('userDatasetModal').addEventListener('hidden.bs.modal', function () {
+      document.body.removeChild(modalElement);
+    });
+  } else {
+    // No user-dataset data available
+    alert('User-dataset attribution data is not available. This feature requires the enhanced version of the cost monitoring query.');
+  }
+}
+
+/**
  * Show an error message
  * @param {string} message - The error message to display
  */
@@ -1153,6 +1420,22 @@ function setupEventListeners() {
   if (timePatternBtn) {
     timePatternBtn.addEventListener('click', () => {
       showTimePatternModal();
+    });
+  }
+  
+  // Table details button
+  const tableDetailsBtn = document.getElementById('showTableDetailsBtn');
+  if (tableDetailsBtn) {
+    tableDetailsBtn.addEventListener('click', () => {
+      showTableDetailsModal();
+    });
+  }
+  
+  // User-Dataset attribution button
+  const userDatasetBtn = document.getElementById('showUserDatasetBtn');
+  if (userDatasetBtn) {
+    userDatasetBtn.addEventListener('click', () => {
+      showUserDatasetModal();
     });
   }
 }

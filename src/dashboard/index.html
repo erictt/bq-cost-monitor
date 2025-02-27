@@ -98,8 +98,16 @@
     <div class="row mb-4">
       <div class="col-12">
         <div class="card">
-          <div class="card-header">
+          <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">Top Datasets by Cost</h5>
+            <div>
+              <button id="showTableDetailsBtn" class="btn btn-sm btn-outline-secondary" title="View table details">
+                <i class="bi bi-table"></i> Tables
+              </button>
+              <button id="showUserDatasetBtn" class="btn btn-sm btn-outline-secondary ms-2" title="User-Dataset attribution">
+                <i class="bi bi-people"></i> User Attribution
+              </button>
+            </div>
           </div>
           <div class="card-body table-responsive">
             <table class="table table-sm table-striped">

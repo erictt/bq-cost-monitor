@@ -1,0 +1,100 @@
+config {
+  type: "table",
+  description: "Summary of BigQuery costs by table with rebuild vs incremental breakdown",
+  columns: {
+    date: "Date of the query execution (YYYY-MM-DD)",
+    project_id: "Google Cloud project ID",
+    table_name: "Full table name (project.dataset.table)",
+    table_id: "Table identifier",
+    dataset_name: "Dataset name (project.dataset)",
+    total_cost_usd: "Total cost in USD for this table",
+    rebuild_cost_usd: "Cost associated with rebuild operations",
+    incremental_cost_usd: "Cost associated with incremental operations",
+    bytes_processed: "Total bytes processed for this table",
+    rebuild_count: "Count of rebuild operations",
+    is_rebuild_heavy: "Boolean indicating if more than 80% of costs are from rebuilds",
+    service_account_costs: "Array of service accounts and their costs for this table"
+  },
+  bigquery: {
+    partitionBy: "date",
+    clusterBy: ["project_id", "dataset_name"]
+  },
+  tags: ["cost", "monitoring", "tables", "rebuild"]
+}
+
+-- Calculate table costs across all users and service accounts
+WITH table_data AS (
+  SELECT
+    date,
+    project_id,
+    t.table_name,
+    t.table_id,
+    t.dataset_name,
+    t.bytes_processed,
+    t.bytes_billed,
+    t.table_cost_usd AS total_cost_usd,
+    t.rebuild_cost_usd,
+    t.incremental_cost_usd,
+    t.rebuild_count,
+    t.is_rebuild_operation,
+    -- Include user/service account information
+    cm.user_email,
+    cm.service_account
+  FROM 
+    ${ref("bigquery_cost_monitoring")} cm,
+    UNNEST(cm.table_costs) AS t
+),
+
+-- Aggregate costs across users for each table
+table_summary AS (
+  SELECT
+    date,
+    project_id,
+    table_name,
+    table_id,
+    dataset_name,
+    SUM(total_cost_usd) AS total_cost_usd,
+    SUM(rebuild_cost_usd) AS rebuild_cost_usd,
+    SUM(incremental_cost_usd) AS incremental_cost_usd,
+    SUM(bytes_processed) AS bytes_processed,
+    SUM(rebuild_count) AS rebuild_count,
+    (SUM(rebuild_cost_usd) / NULLIF(SUM(total_cost_usd), 0) > 0.8) AS is_rebuild_heavy
+  FROM
+    table_data
+  GROUP BY
+    date, project_id, table_name, table_id, dataset_name
+)
+
+-- Final table with service account attribution
+SELECT
+  ts.date,
+  ts.project_id,
+  ts.table_name,
+  ts.table_id,
+  ts.dataset_name,
+  ts.total_cost_usd,
+  ts.rebuild_cost_usd,
+  ts.incremental_cost_usd,
+  ts.bytes_processed,
+  ts.rebuild_count,
+  ts.is_rebuild_heavy,
+  -- Add array of service accounts that accessed this table with their costs
+  ARRAY(
+    SELECT AS STRUCT
+      COALESCE(td.service_account, td.user_email) AS user,
+      CASE WHEN td.service_account IS NOT NULL THEN TRUE ELSE FALSE END AS is_service_account,
+      SUM(td.total_cost_usd) AS cost_usd,
+      SUM(td.rebuild_cost_usd) AS rebuild_cost_usd
+    FROM table_data td
+    WHERE 
+      td.date = ts.date
+      AND td.table_name = ts.table_name
+    GROUP BY 
+      user, is_service_account
+    ORDER BY 
+      cost_usd DESC
+  ) AS service_account_costs
+FROM
+  table_summary ts
+ORDER BY
+  date DESC, total_cost_usd DESC
