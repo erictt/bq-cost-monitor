@@ -1,6 +1,6 @@
-# BigQuery Cost Monitor - Dataform Module
+# BigQuery Cost Monitor for Dataform
 
-This module provides dataform definitions for BigQuery cost monitoring. It can be imported into other dataform projects to add cost monitoring capabilities.
+A JavaScript package that can be imported into any Dataform project to build BigQuery cost monitoring tables with minimal configuration.
 
 ## Features
 
@@ -12,85 +12,91 @@ This module provides dataform definitions for BigQuery cost monitoring. It can b
 
 ## Installation
 
-To use this module in your dataform project:
-
-1. Copy the `module` directory to your dataform project
-2. Import the module in your dataform project
-
-```javascript
-// In your dataform project's index.js
-const costMonitor = require("./includes/bq-cost-monitor");
-
-// Create all cost monitoring objects
-costMonitor.createAllCostMonitoringObjects({
-  schema: "analytics",
-  historyDays: 30,
-  costPerTerabyte: 5.0
-});
+```bash
+npm install bq-cost-monitor
+# or
+yarn add bq-cost-monitor
 ```
 
 ## Usage
 
-### Create Individual Tables and Views
-
-You can create individual tables and views as needed:
+### Basic Usage
 
 ```javascript
-// Create the main cost monitoring table
-const mainTable = costMonitor.createCostMonitoringTable({
+// In your dataform project's index.js
+const { BigQueryCostMonitor } = require("bq-cost-monitor");
+
+// Initialize with minimal config
+const costMonitor = new BigQueryCostMonitor({
   schema: "analytics",
-  name: "bigquery_cost_monitoring",
   historyDays: 30,
   costPerTerabyte: 5.0
 });
 
-// Create the daily cost summary view
-costMonitor.createDailyCostSummaryView({
+// Create all tables with one call
+costMonitor.createAllTables();
+```
+
+### Advanced Usage
+
+You can create individual tables and views as needed:
+
+```javascript
+// Initialize with custom configuration
+const costMonitor = new BigQueryCostMonitor({
   schema: "analytics",
-  name: "daily_cost_summary",
+  historyDays: 30,
+  costPerTerabyte: 5.0
+});
+
+// Create the main cost monitoring table
+const mainTable = costMonitor.createCostMonitoringTable({
+  name: "custom_bigquery_cost_monitoring"
+});
+
+// Create the daily cost summary view
+costMonitor.createDailySummaryView({
+  name: "custom_daily_cost_summary",
   sourceTable: mainTable.name
 });
 
 // Create the dataset cost summary view
-costMonitor.createDatasetCostSummaryView({
-  schema: "analytics",
-  name: "dataset_cost_summary",
+costMonitor.createDatasetSummaryView({
+  name: "custom_dataset_cost_summary",
   sourceTable: mainTable.name
 });
 
 // Create the service account cost summary view
-costMonitor.createServiceAccountCostSummaryView({
-  schema: "analytics",
-  name: "service_account_cost_summary",
+costMonitor.createServiceAccountSummaryView({
+  name: "custom_service_account_cost_summary",
   sourceTable: mainTable.name
 });
 
 // Create the user dataset attribution table
 costMonitor.createUserDatasetAttributionTable({
-  schema: "analytics",
-  name: "user_dataset_attribution",
+  name: "custom_user_dataset_attribution",
   sourceTable: mainTable.name
 });
 ```
 
-### Use Query Optimization Utilities
+### Query Optimization Utilities
 
-The module also includes utilities for query optimization:
+The package also includes utilities for query optimization:
 
 ```javascript
-const { queryOptimization } = require("./includes/bq-cost-monitor");
+const { QueryOptimization } = require("bq-cost-monitor");
 
 // Add optimization tips to a query
-const queryWithTips = queryOptimization.optimizationTips() + myQuery;
+const queryWithTips = QueryOptimization.optimizationTips() + myQuery;
 
 // Add cost estimation to a query
-const queryWithCost = queryOptimization.addCostEstimation(myQuery, {
+const queryWithCost = QueryOptimization.addCostEstimation(myQuery, {
   estimatedTB: 1.5,
   costPerTB: 5.0
 });
 
 // Add query tagging
-const taggedQuery = queryOptimization.addQueryTagging(
+const taggedQuery = QueryOptimization.addQueryTagging(
   myQuery,
   "my-project",
   "data-team",
@@ -101,19 +107,39 @@ const taggedQuery = queryOptimization.addQueryTagging(
 );
 
 // Add partition filter to a query
-const filteredQuery = queryOptimization.addPartitionFilter(
+const filteredQuery = QueryOptimization.addPartitionFilter(
   myQuery,
   "date",
   ">= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)"
 );
 
 // Make a query incremental
-const incrementalQuery = queryOptimization.makeIncremental(
+const incrementalQuery = QueryOptimization.makeIncremental(
   myQuery,
   "last_modified_date",
   ">= '${dataform.projectConfig.vars.lastRunTime}'"
 );
 ```
+
+## Configuration Options
+
+### BigQueryCostMonitor
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| schema | string | "analytics" | The schema to create the tables in |
+| historyDays | number | 30 | Number of days of history to include |
+| costPerTerabyte | number | 5.0 | Cost per terabyte of data processed |
+
+### Table-specific Options
+
+Each table creation method accepts these options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| schema | string | From constructor | The schema to create the table in |
+| name | string | Table-specific | The name of the table |
+| sourceTable | string | "bigquery_cost_monitoring" | The name of the source table (for views) |
 
 ## Schema
 
@@ -191,3 +217,7 @@ Cross-tabulation of which users/service accounts are querying which datasets:
 - `top_tables`: Most expensive tables in this dataset accessed by this user
 - `pct_of_user_cost`: Percentage of user's total cost that comes from this dataset
 - `pct_of_dataset_cost`: Percentage of dataset's total cost that comes from this user
+
+## License
+
+ISC
