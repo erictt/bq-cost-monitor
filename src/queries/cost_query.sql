@@ -26,13 +26,12 @@ WITH job_stats AS (
     -- Extract dataset information from referenced tables
     ARRAY(
       SELECT DISTINCT 
-        CONCAT(proj, '.', ds)
+        CONCAT(ref_table.project_id, '.', ref_table.dataset_id)
       FROM 
-        UNNEST(referenced_tables) AS ref_table,
-        UNNEST([STRUCT(
-          SPLIT(ref_table, '.')[OFFSET(0)] AS proj,
-          SPLIT(ref_table, '.')[OFFSET(1)] AS ds
-        )])
+        UNNEST(referenced_tables) AS ref_table
+      WHERE 
+        ref_table.project_id IS NOT NULL 
+        AND ref_table.dataset_id IS NOT NULL
     ) AS referenced_datasets
   FROM
     `region-us`.INFORMATION_SCHEMA.JOBS
