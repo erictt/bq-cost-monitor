@@ -639,25 +639,73 @@ function updateDatasetTable(data) {
   
   // Format functions for better readability
   const formatBytes = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0 || isNaN(bytes)) return '0 Bytes';
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[Math.min(i, sizes.length - 1)];
+  };
+  
+  const formatCurrency = (value) => {
+    if (typeof value !== 'number' || isNaN(value)) return '$0.00';
+    // Use toLocaleString for proper currency formatting with commas
+    return '$' + value.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+  
+  const formatPercentage = (value, total) => {
+    if (typeof value !== 'number' || typeof total !== 'number' || 
+        isNaN(value) || isNaN(total) || total === 0) {
+      return '0.0%';
+    }
+    
+    const percentage = (value / total) * 100;
+    // Cap at 100% for display purposes if it somehow exceeds 100%
+    const cappedPercentage = Math.min(percentage, 100);
+    return cappedPercentage.toFixed(1) + '%';
   };
   
   // Add rows to the table
   sortedDatasets.forEach(([dataset, data]) => {
     const row = document.createElement('tr');
     
-    // Calculate percentage of total cost
-    const percentage = totalCost > 0 ? (data.cost / totalCost * 100) : 0;
+    row.innerHTML = `
+      <td><code>${dataset}</code></td>
+      <td>${formatBytes(data.bytes)}</td>
+      <td>${formatCurrency(data.cost)}</td>
+      <td>${formatPercentage(data.cost, totalCost)}</td>
+    `;
+    
+    datasetTableElement.appendChild(row);
+  });$' + value.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+  
+  const formatPercentage = (value, total) => {
+    if (typeof value !== 'number' || typeof total !== 'number' || 
+        isNaN(value) || isNaN(total) || total === 0) {
+      return '0.0%';
+    }
+    
+    const percentage = (value / total) * 100;
+    // Cap at 100% for display purposes if it somehow exceeds 100%
+    const cappedPercentage = Math.min(percentage, 100);
+    return cappedPercentage.toFixed(1) + '%';
+  };
+  
+  // Add rows to the table
+  sortedDatasets.forEach(([dataset, data]) => {
+    const row = document.createElement('tr');
     
     row.innerHTML = `
       <td><code>${dataset}</code></td>
       <td>${formatBytes(data.bytes)}</td>
-      <td>$${data.cost.toFixed(2)}</td>
-      <td>${percentage.toFixed(1)}%</td>
+      <td>${formatCurrency(data.cost)}</td>
+      <td>${formatPercentage(data.cost, totalCost)}</td>
     `;
     
     datasetTableElement.appendChild(row);
