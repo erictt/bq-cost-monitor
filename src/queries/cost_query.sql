@@ -122,7 +122,7 @@ table_costs AS (
     ARRAY_LENGTH(js.referenced_tables_detail) > 0
   GROUP BY
     date, js.project_id, js.user_email, js.service_account, 
-    table_name, table_project, table_dataset, table_id, js.creation_time
+    table_name, table_project, table_dataset, table_id
 ),
 
 -- Calculate per-dataset costs
@@ -181,8 +181,8 @@ weekday_aggregates AS (
     date, js.project_id, js.user_email, js.service_account, js.day_of_week
 ),
 
--- Create summarized arrays for each dimension
-user_daily_stats AS (
+-- Create base user daily stats
+user_daily_base AS (
   SELECT
     FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time) AS date,
     js.project_id,
@@ -197,37 +197,77 @@ user_daily_stats AS (
     ROUND(SUM(js.total_bytes_billed) / POWER(1024, 4) * @cost_per_terabyte, 2) AS estimated_cost_usd,
     SUM(js.total_slot_ms) / 1000 / 3600 AS slot_hours,
     -- Cache efficiency
-    ROUND(SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100, 2) AS cache_hit_percentage,
-    -- Create hourly breakdown array
-    (SELECT ARRAY_AGG(
+    ROUND(SUM(CASE WHEN js.cache_hit THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) * 100, 2) AS cache_hit_percentage
+  FROM
+    job_stats js
+  GROUP BY
+    date, js.project_id, js.user_email, js.service_account
+),
+
+-- Hourly breakdown
+user_hourly_breakdown AS (
+  SELECT
+    udb.date,
+    udb.project_id,
+    udb.user_email,
+    udb.service_account,
+    ARRAY_AGG(
       STRUCT(
         ha.hour_of_day, 
         ha.query_count as hourly_queries,
         ha.estimated_cost_usd as hourly_cost
       )
       ORDER BY ha.hour_of_day
-    ) FROM hourly_aggregates ha 
-    WHERE ha.date = FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time)
-      AND ha.project_id = js.project_id
-      AND ha.user_email = js.user_email
-      AND (ha.service_account = js.service_account OR (ha.service_account IS NULL AND js.service_account IS NULL))
-    ) AS hourly_breakdown,
-    -- Create daily breakdown array
-    (SELECT ARRAY_AGG(
+    ) AS hourly_breakdown
+  FROM
+    user_daily_base udb
+  JOIN
+    hourly_aggregates ha
+  ON
+    ha.date = udb.date
+    AND ha.project_id = udb.project_id
+    AND ha.user_email = udb.user_email
+    AND (ha.service_account = udb.service_account OR (ha.service_account IS NULL AND udb.service_account IS NULL))
+  GROUP BY
+    udb.date, udb.project_id, udb.user_email, udb.service_account
+),
+
+-- Daily breakdown
+user_daily_breakdown AS (
+  SELECT
+    udb.date,
+    udb.project_id,
+    udb.user_email,
+    udb.service_account,
+    ARRAY_AGG(
       STRUCT(
         wa.day_of_week, 
         wa.query_count as daily_queries,
         wa.estimated_cost_usd as daily_cost
       )
       ORDER BY wa.day_of_week
-    ) FROM weekday_aggregates wa
-    WHERE wa.date = FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time)
-      AND wa.project_id = js.project_id
-      AND wa.user_email = js.user_email
-      AND (wa.service_account = js.service_account OR (wa.service_account IS NULL AND js.service_account IS NULL))
-    ) AS daily_breakdown,
-    -- Create dataset costs array
-    (SELECT ARRAY_AGG(
+    ) AS daily_breakdown
+  FROM
+    user_daily_base udb
+  JOIN
+    weekday_aggregates wa
+  ON
+    wa.date = udb.date
+    AND wa.project_id = udb.project_id
+    AND wa.user_email = udb.user_email
+    AND (wa.service_account = udb.service_account OR (wa.service_account IS NULL AND udb.service_account IS NULL))
+  GROUP BY
+    udb.date, udb.project_id, udb.user_email, udb.service_account
+),
+
+-- Dataset costs
+user_dataset_costs AS (
+  SELECT
+    udb.date,
+    udb.project_id,
+    udb.user_email,
+    udb.service_account,
+    ARRAY_AGG(
       STRUCT(
         dc.dataset,
         dc.bytes_processed,
@@ -236,14 +276,28 @@ user_daily_stats AS (
         dc.rebuild_operations
       )
       ORDER BY dc.dataset_cost_usd DESC
-    ) FROM dataset_costs dc
-    WHERE dc.date = FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time)
-      AND dc.project_id = js.project_id
-      AND dc.user_email = js.user_email
-      AND (dc.service_account = js.service_account OR (dc.service_account IS NULL AND js.service_account IS NULL))
-    ) AS dataset_costs,
-    -- Create table costs array
-    (SELECT ARRAY_AGG(
+    ) AS dataset_costs
+  FROM
+    user_daily_base udb
+  JOIN
+    dataset_costs dc
+  ON
+    dc.date = udb.date
+    AND dc.project_id = udb.project_id
+    AND dc.user_email = udb.user_email
+    AND (dc.service_account = udb.service_account OR (dc.service_account IS NULL AND udb.service_account IS NULL))
+  GROUP BY
+    udb.date, udb.project_id, udb.user_email, udb.service_account
+),
+
+-- Table costs
+user_table_costs AS (
+  SELECT
+    udb.date,
+    udb.project_id,
+    udb.user_email,
+    udb.service_account,
+    ARRAY_AGG(
       STRUCT(
         tc.table_name,
         tc.table_id,
@@ -258,14 +312,28 @@ user_daily_stats AS (
       )
       ORDER BY tc.table_cost_usd DESC
       LIMIT 100
-    ) FROM table_costs tc
-    WHERE tc.date = FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time)
-      AND tc.project_id = js.project_id
-      AND tc.user_email = js.user_email
-      AND (tc.service_account = js.service_account OR (tc.service_account IS NULL AND js.service_account IS NULL))
-    ) AS table_costs,
-    -- Create recent queries array
-    (SELECT ARRAY_AGG(
+    ) AS table_costs
+  FROM
+    user_daily_base udb
+  JOIN
+    table_costs tc
+  ON
+    tc.date = udb.date
+    AND tc.project_id = udb.project_id
+    AND tc.user_email = udb.user_email
+    AND (tc.service_account = udb.service_account OR (tc.service_account IS NULL AND udb.service_account IS NULL))
+  GROUP BY
+    udb.date, udb.project_id, udb.user_email, udb.service_account
+),
+
+-- Recent queries
+user_recent_queries AS (
+  SELECT
+    udb.date,
+    udb.project_id,
+    udb.user_email,
+    udb.service_account,
+    ARRAY_AGG(
       STRUCT(
         qd.job_id,
         qd.timestamp,
@@ -280,16 +348,77 @@ user_daily_stats AS (
       )
       ORDER BY qd.creation_time DESC
       LIMIT 100
-    ) FROM query_details qd
-    WHERE qd.date = FORMAT_TIMESTAMP('%Y-%m-%d', js.creation_time)
-      AND qd.project_id = js.project_id
-      AND qd.user_email = js.user_email
-      AND (qd.service_account = js.service_account OR (qd.service_account IS NULL AND js.service_account IS NULL))
     ) AS recent_queries
   FROM
-    job_stats js
+    user_daily_base udb
+  JOIN
+    query_details qd
+  ON
+    qd.date = udb.date
+    AND qd.project_id = udb.project_id
+    AND qd.user_email = udb.user_email
+    AND (qd.service_account = udb.service_account OR (qd.service_account IS NULL AND udb.service_account IS NULL))
   GROUP BY
-    date, js.project_id, js.user_email, js.service_account
+    udb.date, udb.project_id, udb.user_email, udb.service_account
+),
+
+-- Combine all user stats
+user_daily_stats AS (
+  SELECT
+    udb.date,
+    udb.project_id,
+    udb.user_email,
+    udb.service_account,
+    udb.query_count,
+    udb.cache_hit_count,
+    udb.error_count,
+    udb.total_bytes_processed,
+    udb.total_bytes_billed,
+    udb.estimated_cost_usd,
+    udb.slot_hours,
+    udb.cache_hit_percentage,
+    uhb.hourly_breakdown,
+    udb2.daily_breakdown,
+    udc.dataset_costs,
+    utc.table_costs,
+    urq.recent_queries
+  FROM
+    user_daily_base udb
+  LEFT JOIN
+    user_hourly_breakdown uhb
+  ON
+    uhb.date = udb.date
+    AND uhb.project_id = udb.project_id
+    AND uhb.user_email = udb.user_email
+    AND (uhb.service_account = udb.service_account OR (uhb.service_account IS NULL AND udb.service_account IS NULL))
+  LEFT JOIN
+    user_daily_breakdown udb2
+  ON
+    udb2.date = udb.date
+    AND udb2.project_id = udb.project_id
+    AND udb2.user_email = udb.user_email
+    AND (udb2.service_account = udb.service_account OR (udb2.service_account IS NULL AND udb.service_account IS NULL))
+  LEFT JOIN
+    user_dataset_costs udc
+  ON
+    udc.date = udb.date
+    AND udc.project_id = udb.project_id
+    AND udc.user_email = udb.user_email
+    AND (udc.service_account = udb.service_account OR (udc.service_account IS NULL AND udb.service_account IS NULL))
+  LEFT JOIN
+    user_table_costs utc
+  ON
+    utc.date = udb.date
+    AND utc.project_id = udb.project_id
+    AND utc.user_email = udb.user_email
+    AND (utc.service_account = udb.service_account OR (utc.service_account IS NULL AND udb.service_account IS NULL))
+  LEFT JOIN
+    user_recent_queries urq
+  ON
+    urq.date = udb.date
+    AND urq.project_id = udb.project_id
+    AND urq.user_email = udb.user_email
+    AND (urq.service_account = udb.service_account OR (urq.service_account IS NULL AND udb.service_account IS NULL))
 )
 
 -- Final output

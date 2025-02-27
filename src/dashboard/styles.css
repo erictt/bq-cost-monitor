@@ -135,3 +135,20 @@ canvas {
   margin-top: 1rem;
   font-size: 1.1rem;
 }
+
+/* Table cell truncation */
+.text-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 250px;
+  display: inline-block;
+}
+
+/* Modal table styles */
+.modal .table th {
+  position: sticky;
+  top: 0;
+  background-color: #f8f9fa;
+  z-index: 1;
+}

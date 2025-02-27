@@ -10,6 +10,51 @@ let userCostChart = null;
 let cacheHitChart = null;
 let activePeriod = 14; // Default to 14 days
 
+/**
+ * Format bytes to human-readable format
+ * @param {number} bytes - The number of bytes to format
+ * @returns {string} - Formatted string with appropriate unit
+ */
+function formatBytes(bytes) {
+  if (bytes === 0 || isNaN(bytes)) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[Math.min(i, sizes.length - 1)];
+}
+
+/**
+ * Format currency value
+ * @param {number} value - The value to format as currency
+ * @returns {string} - Formatted currency string
+ */
+function formatCurrency(value) {
+  if (typeof value !== 'number' || isNaN(value)) return '$0.00';
+  // Use toLocaleString for proper currency formatting with commas
+  return '$' + value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+/**
+ * Format percentage value
+ * @param {number} value - The value to calculate percentage from
+ * @param {number} total - The total value
+ * @returns {string} - Formatted percentage string
+ */
+function formatPercentage(value, total) {
+  if (typeof value !== 'number' || typeof total !== 'number' || 
+      isNaN(value) || isNaN(total) || total === 0) {
+    return '0.0%';
+  }
+  
+  const percentage = (value / total) * 100;
+  // Cap at 100% for display purposes if it somehow exceeds 100%
+  const cappedPercentage = Math.min(percentage, 100);
+  return cappedPercentage.toFixed(1) + '%';
+}
+
 // DOM elements
 const projectDropdown = document.getElementById('projectDropdown');
 const projectList = document.getElementById('projectList');
@@ -443,89 +488,155 @@ function updateTable(data) {
   // Clear the table
   queriesTableElement.innerHTML = '';
   
-  // Collect all recent queries from all records
-  const allRecentQueries = [];
+  // Aggregate queries by dataset and user
+  const datasetUserSummary = {};
   
   // Process each item
   data.forEach(item => {
+    // Get user/service account
+    const user = item.service_account || item.user_email || 'Unknown';
+    const userDisplay = user.split('@')[0]; // Shorter display format
+    
     // Check if we have recent_queries array
     if (item.recent_queries && Array.isArray(item.recent_queries)) {
-      // Add date and user info to each query for display
+      // Process each query and aggregate by dataset and user
       item.recent_queries.forEach(query => {
-        allRecentQueries.push({
-          ...query,
-          date: item.date,
-          user: item.user_email || item.service_account || 'Unknown'
-        });
+        // Extract dataset from query if available
+        let dataset = 'Unknown';
+        if (query.query_text) {
+          // Try to extract dataset from query text using regex
+          const datasetMatch = query.query_text.match(/FROM\s+`?([a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)`?/i);
+          if (datasetMatch && datasetMatch[1]) {
+            dataset = datasetMatch[1];
+          }
+        }
+        
+        // Create a unique key for dataset+user combination
+        const key = `${dataset}|${user}`;
+        
+        // Create dataset+user key if it doesn't exist
+        if (!datasetUserSummary[key]) {
+          datasetUserSummary[key] = {
+            dataset: dataset,
+            user: user,
+            userDisplay: userDisplay,
+            query_count: 0,
+            total_bytes_processed: 0,
+            total_cost: 0,
+            cache_hit_count: 0,
+            error_count: 0,
+            last_queried: new Date(0)
+          };
+        }
+        
+        // Update dataset+user summary
+        datasetUserSummary[key].query_count++;
+        datasetUserSummary[key].total_bytes_processed += (query.total_bytes_processed || 0);
+        datasetUserSummary[key].total_cost += (query.query_cost_usd || 0);
+        datasetUserSummary[key].cache_hit_count += (query.cache_hit ? 1 : 0);
+        datasetUserSummary[key].error_count += (query.has_error ? 1 : 0);
+        
+        // Update last queried timestamp
+        const queryTimestamp = new Date(query.timestamp);
+        if (queryTimestamp > datasetUserSummary[key].last_queried) {
+          datasetUserSummary[key].last_queried = queryTimestamp;
+        }
+      });
+    } else if (item.dataset_costs && Array.isArray(item.dataset_costs)) {
+      // If we have dataset_costs, use that for aggregation
+      item.dataset_costs.forEach(ds => {
+        const dataset = ds.dataset || 'Unknown';
+        
+        // Create a unique key for dataset+user combination
+        const key = `${dataset}|${user}`;
+        
+        // Create dataset+user key if it doesn't exist
+        if (!datasetUserSummary[key]) {
+          datasetUserSummary[key] = {
+            dataset: dataset,
+            user: user,
+            userDisplay: userDisplay,
+            query_count: 0,
+            total_bytes_processed: 0,
+            total_cost: 0,
+            cache_hit_count: 0,
+            error_count: 0,
+            last_queried: new Date(item.date)
+          };
+        }
+        
+        // Update dataset+user summary
+        datasetUserSummary[key].total_bytes_processed += (ds.bytes_processed || 0);
+        datasetUserSummary[key].total_cost += (ds.dataset_cost_usd || 0);
       });
     } else {
-      // Legacy data format - create a summary record
-      allRecentQueries.push({
-        job_id: `summary-${item.date}-${item.user_email || item.service_account}`,
-        timestamp: item.date,
-        user: item.user_email || item.service_account || 'Unknown',
-        total_bytes_processed: item.total_bytes_processed,
-        query_cost_usd: item.estimated_cost_usd,
-        cache_hit: item.cache_hit_count > 0,
-        has_error: item.error_count > 0,
-        isSummary: true, // Flag to identify summary records
-        query_count: item.query_count,
-        cache_hit_percentage: item.query_count > 0 ? (item.cache_hit_count / item.query_count) * 100 : 0
-      });
+      // Legacy data format - create a summary record for "Unknown" dataset
+      const dataset = 'Unknown';
+      
+      // Create a unique key for dataset+user combination
+      const key = `${dataset}|${user}`;
+      
+      // Create dataset+user key if it doesn't exist
+      if (!datasetUserSummary[key]) {
+        datasetUserSummary[key] = {
+          dataset: dataset,
+          user: user,
+          userDisplay: userDisplay,
+          query_count: 0,
+          total_bytes_processed: 0,
+          total_cost: 0,
+          cache_hit_count: 0,
+          error_count: 0,
+          last_queried: new Date(item.date)
+        };
+      }
+      
+      // Update dataset+user summary
+      datasetUserSummary[key].query_count += (item.query_count || 0);
+      datasetUserSummary[key].total_bytes_processed += (item.total_bytes_processed || 0);
+      datasetUserSummary[key].total_cost += (item.estimated_cost_usd || 0);
+      datasetUserSummary[key].cache_hit_count += (item.cache_hit_count || 0);
+      datasetUserSummary[key].error_count += (item.error_count || 0);
     }
   });
   
-  // Sort all queries by timestamp (newest first)
-  const sortedQueries = allRecentQueries.sort((a, b) => {
-    return new Date(b.timestamp) > new Date(a.timestamp) ? 1 : -1;
-  });
-  
-  // Limit to the most recent 30 entries
-  const recentQueries = sortedQueries.slice(0, 30);
+  // Convert to array and sort by date (most recent first) and then by data processed (highest first)
+  const sortedEntries = Object.values(datasetUserSummary)
+    .sort((a, b) => {
+      // First compare by date (most recent first)
+      const dateComparison = b.last_queried - a.last_queried;
+      if (dateComparison !== 0) return dateComparison;
+      
+      // If dates are the same, compare by data processed (highest first)
+      return b.total_bytes_processed - a.total_bytes_processed;
+    });
   
   // Add rows to the table
-  recentQueries.forEach(query => {
+  sortedEntries.forEach(entry => {
     const row = document.createElement('tr');
     
-    // Format data differently for summary vs. individual query
-    if (query.isSummary) {
-      // This is a summary record (legacy format)
-      const bytesGB = (query.total_bytes_processed || 0) / Math.pow(1024, 3);
-      
-      row.innerHTML = `
-        <td>${query.timestamp}</td>
-        <td>${query.user}</td>
-        <td>${query.query_count || 0} queries</td>
-        <td>${bytesGB.toFixed(2)} GB</td>
-        <td>$${(query.query_cost_usd || 0).toFixed(2)}</td>
-        <td>${query.cache_hit_percentage.toFixed(1)}%</td>
-      `;
-    } else {
-      // This is an individual query record
-      const bytesGB = (query.total_bytes_processed || 0) / Math.pow(1024, 3);
-      const queryTypeClass = query.has_error ? 'text-danger' : (query.cache_hit ? 'text-success' : '');
-      const queryTypeIcon = query.has_error ? '❌' : (query.cache_hit ? '✓' : '');
-      const truncatedQuery = query.query_text 
-        ? `<span class="text-muted small">${query.query_text.substring(0, 50)}${query.query_text.length > 50 ? '...' : ''}</span>`
-        : '';
-      
-      row.innerHTML = `
-        <td title="${query.timestamp}">${new Date(query.timestamp).toLocaleTimeString()}</td>
-        <td>${query.user}</td>
-        <td><span class="${queryTypeClass}">${query.statement_type || 'QUERY'} ${queryTypeIcon}</span> ${truncatedQuery}</td>
-        <td>${bytesGB.toFixed(2)} GB</td>
-        <td>$${(query.query_cost_usd || 0).toFixed(2)}</td>
-        <td>${query.execution_time_seconds ? `${query.execution_time_seconds.toFixed(1)}s` : 'N/A'}</td>
-      `;
-    }
+    const bytesGB = (entry.total_bytes_processed || 0) / Math.pow(1024, 3);
+    const cacheHitPercentage = entry.query_count > 0 
+      ? (entry.cache_hit_count / entry.query_count * 100) 
+      : 0;
+    
+    row.innerHTML = `
+      <td style="word-break: break-word; max-width: 200px;"><code>${entry.dataset}</code></td>
+      <td><code>${entry.userDisplay}</code></td>
+      <td>${entry.query_count || 0} queries</td>
+      <td>${bytesGB.toFixed(2)} GB</td>
+      <td>${formatCurrency(entry.total_cost)}</td>
+      <td>${cacheHitPercentage.toFixed(1)}%</td>
+      <td>${entry.last_queried.toLocaleDateString()}</td>
+    `;
     
     queriesTableElement.appendChild(row);
   });
   
-  // If no queries found, show message
-  if (recentQueries.length === 0) {
+  // If no entries found, show message
+  if (sortedEntries.length === 0) {
     const row = document.createElement('tr');
-    row.innerHTML = `<td colspan="6" class="text-center">No query data available</td>`;
+    row.innerHTML = `<td colspan="7" class="text-center">No query data available</td>`;
     queriesTableElement.appendChild(row);
   }
 }
@@ -671,35 +782,7 @@ function updateDatasetTable(data) {
   // Clear the table
   datasetTableElement.innerHTML = '';
   
-  // Format functions for better readability
-  const formatBytes = (bytes) => {
-    if (bytes === 0 || isNaN(bytes)) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[Math.min(i, sizes.length - 1)];
-  };
-  
-  const formatCurrency = (value) => {
-    if (typeof value !== 'number' || isNaN(value)) return '$0.00';
-    // Use toLocaleString for proper currency formatting with commas
-    return '$' + value.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  };
-  
-  const formatPercentage = (value, total) => {
-    if (typeof value !== 'number' || typeof total !== 'number' || 
-        isNaN(value) || isNaN(total) || total === 0) {
-      return '0.0%';
-    }
-    
-    const percentage = (value / total) * 100;
-    // Cap at 100% for display purposes if it somehow exceeds 100%
-    const cappedPercentage = Math.min(percentage, 100);
-    return cappedPercentage.toFixed(1) + '%';
-  };
+  // Use the global formatting functions
   
   // Add rows to the table
   sortedDatasets.forEach(([dataset, data]) => {
@@ -1181,7 +1264,7 @@ function showTableDetailsModal() {
                 <table class="table table-sm table-striped">
                   <thead>
                     <tr>
-                      <th>Table</th>
+                      <th style="max-width: 250px;">Table</th>
                       <th>Dataset</th>
                       <th>Total Cost</th>
                       <th>Rebuild Cost</th>
@@ -1206,7 +1289,7 @@ function showTableDetailsModal() {
                       
                       return `
                         <tr class="${rowClass}">
-                          <td><code>${table.table_id}</code></td>
+                          <td style="word-break: break-word; max-width: 250px;" title="${table.table_id}"><code>${table.table_id}</code></td>
                           <td>${table.dataset_name}</td>
                           <td>${formatCurrency(table.total_cost)}</td>
                           <td>${formatCurrency(table.rebuild_cost)}</td>
