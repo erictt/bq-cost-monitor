@@ -1,17 +1,4 @@
-# Modified BigQuery Cost Monitor for Dataform
-
-This is a modified version of the BigQuery Cost Monitor package that addresses issues with duplicate actions and canonical targets in Dataform projects. It also adds support for using existing datasets.
-
-## What's Changed
-
-1. **Added tracking of created tables/views**: The package now keeps track of tables and views it has created to avoid duplicate actions.
-2. **Added support for existing datasets**: A new `useExistingDataset` option allows you to use existing datasets instead of creating new ones.
-3. **Improved error handling**: Better handling of schema and table name conflicts.
-4. **Configurable project database**: A new `projectDatabase` option allows you to specify which GCP project to query for INFORMATION_SCHEMA data.
-5. **Optimized query performance**: Added filters to reduce the amount of data processed in the query.
-6. **Fixed duplicate action name errors**: Implemented a unique action name generation system to avoid conflicts.
-7. **Uses explicit table references**: Removed all usage of ref() function in SQL queries for better compatibility.
-8. **Fixed template literal interpolation**: Properly interpolates variables in SQL queries by pre-computing table names outside of template literals.
+# BigQuery Cost Monitor for Dataform
 
 ## Installation
 
@@ -24,7 +11,8 @@ Since this is a modified version, you'll need to use it directly from the source
 
 ```javascript
 // Import the modified BigQueryCostMonitor class
-const { BigQueryCostMonitor } = require("./path/to/modified_index");
+// const { BigQueryCostMonitor } = require("./path/to/modified_index");
+const { BigQueryCostMonitor } = require("bq-cost-monitoring");
 
 // Initialize with an existing dataset
 const costMonitor = new BigQueryCostMonitor({

@@ -1,8 +1,12 @@
 {
-  "name": "bq-cost-monitoring",
-  "version": "1.1.6",
+  "name": "bq-cost-monitor",
+  "version": "0.0.1",
   "description": "BigQuery cost monitoring solution for Dataform projects",
   "main": "src/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erictt/bq-cost-monitor.git"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
