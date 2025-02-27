@@ -122,7 +122,7 @@ table_costs AS (
     ARRAY_LENGTH(js.referenced_tables_detail) > 0
   GROUP BY
     date, js.project_id, js.user_email, js.service_account, 
-    table_name, table_project, table_dataset, table_id
+    table_name, table_project, table_dataset, table_id, js.creation_time
 ),
 
 -- Calculate per-dataset costs
