@@ -8,8 +8,8 @@
 console.log('app.js loaded');
 
 // Import components
-import { 
-  updateCharts, 
+import {
+  updateCharts,
   resetCharts
 } from './components/charts.js';
 
@@ -24,7 +24,6 @@ import {
   showLoading,
   hideLoading,
   showEmptyState,
-  showError
 } from './components/metrics.js';
 
 import {
@@ -36,9 +35,6 @@ import {
 // Import event listeners
 import { setupEventListeners } from './eventListeners.js';
 
-// Import formatters
-import { formatCurrency } from './formatters.js';
-
 /**
  * Dashboard state management
  */
@@ -47,7 +43,7 @@ class DashboardState {
     this.currentProject = null;
     this.costData = [];
     this.activePeriod = 14; // Default to 14 days
-    
+
     // DOM element references
     this.domElements = {
       projectDropdown: document.getElementById('projectDropdown'),
@@ -60,12 +56,12 @@ class DashboardState {
       periodButtons: document.querySelectorAll('[data-period]')
     };
   }
-  
+
   // Getter for filtered data based on active period
   getFilteredData() {
     return filterDataByPeriod(this.costData, this.activePeriod);
   }
-  
+
   // Update the active period
   updateActivePeriod(period) {
     this.activePeriod = period;
@@ -85,10 +81,10 @@ document.addEventListener('DOMContentLoaded', initializeDashboard);
 async function initializeDashboard() {
   // Load projects
   const projects = await loadProjects();
-  
+
   // Populate the project dropdown
   populateProjectDropdown(projects);
-  
+
   // Select the first project by default
   if (projects.length > 0) {
     selectProject(projects[0]);
@@ -101,7 +97,7 @@ async function initializeDashboard() {
       datasetTableElement: dashboardState.domElements.datasetTableElement
     }, null, resetCharts, showSampleData);
   }
-  
+
   // Set up event listeners
   setupEventListeners({
     periodButtons: dashboardState.domElements.periodButtons,
@@ -118,7 +114,7 @@ async function initializeDashboard() {
  */
 function populateProjectDropdown(projects) {
   dashboardState.domElements.projectList.innerHTML = '';
-  
+
   projects.forEach(project => {
     const li = document.createElement('li');
     const a = document.createElement('a');
@@ -139,7 +135,7 @@ function populateProjectDropdown(projects) {
 function selectProject(project) {
   dashboardState.currentProject = project;
   dashboardState.domElements.projectDropdown.textContent = project.name;
-  
+
   // Load the cost data for this project
   loadProjectData(project.id);
 }
@@ -153,10 +149,10 @@ async function loadProjectData(projectId, useSampleData = false) {
   try {
     // Show loading indicators
     showLoading(document.querySelectorAll('.card-body'));
-    
+
     // Load cost data from API
     const result = await loadCostData(projectId);
-    
+
     // If no data is available yet
     if (!result.success) {
       if (useSampleData) {
@@ -174,13 +170,13 @@ async function loadProjectData(projectId, useSampleData = false) {
       }
       return;
     }
-    
+
     // Store the data and update the dashboard
     dashboardState.costData = result.data;
     updateDashboard();
   } catch (error) {
     console.error('Error in loadProjectData:', error);
-    
+
     if (useSampleData) {
       // Only show sample data if explicitly requested
       showSampleData();
@@ -211,26 +207,26 @@ function updateDashboard() {
     }, null, resetCharts, showSampleData);
     return;
   }
-  
+
   // Get filtered data based on the active period
   const filteredData = dashboardState.getFilteredData();
-  
+
   // Update summary metrics
   updateSummaryMetrics(filteredData, {
     totalCostElement: dashboardState.domElements.totalCostElement,
     dataProcessedElement: dashboardState.domElements.dataProcessedElement,
     queryCountElement: dashboardState.domElements.queryCountElement
   });
-  
+
   // Update charts
   updateCharts(filteredData);
-  
+
   // Update the query table
   updateQueriesTable(filteredData, dashboardState.domElements.queriesTableElement);
-  
+
   // Update dataset table
   updateDatasetTable(filteredData, dashboardState.domElements.datasetTableElement);
-  
+
   // Hide loading indicators
   hideLoading();
 }
@@ -241,10 +237,7 @@ function updateDashboard() {
 function showSampleData() {
   // Generate sample data
   dashboardState.costData = generateSampleData();
-  
+
   // Update the dashboard with sample data
   updateDashboard();
 }
-
-// Import modals
-import { showTimePatternModal, showTableDetailsModal, showUserDatasetModal } from './modals.js';
