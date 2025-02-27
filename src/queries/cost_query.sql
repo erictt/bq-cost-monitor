@@ -193,8 +193,8 @@ daily_aggregates AS (
     -- Priority distribution
     SUM(CASE WHEN js.priority = 'INTERACTIVE' THEN 1 ELSE 0 END) AS interactive_queries,
     SUM(CASE WHEN js.priority = 'BATCH' THEN 1 ELSE 0 END) AS batch_queries,
-    -- Statement type distribution
-    ARRAY_AGG(STRUCT(js.statement_type AS type, COUNT(*) AS count) GROUP BY js.statement_type) AS statement_types,
+    -- Priority distribution (replacing statement type distribution to avoid multi-level aggregation)
+    STRING_AGG(DISTINCT js.statement_type, ', ') AS statement_types,
     -- Add array of datasets and their costs
     ARRAY(
       SELECT AS STRUCT 
@@ -296,31 +296,27 @@ SELECT
       table_cost_usd DESC
     LIMIT 100
   ) AS table_costs,
-  -- Include all individual queries for detailed exploration
-  (
-    SELECT ARRAY_AGG(
-      STRUCT(
-        qd.job_id,
-        qd.timestamp,
-        qd.statement_type,
-        qd.priority,
-        qd.total_bytes_processed,
-        qd.query_cost_usd,
-        qd.execution_time_seconds,
-        qd.cache_hit,
-        qd.has_error,
-        qd.query_text,
-        qd.referenced_datasets
-      )
-      ORDER BY qd.creation_time DESC
-      LIMIT 100  -- Keep the 100 most recent queries per day/user combination
-    )
+  -- Simplified approach to include recent queries to avoid multi-level aggregation
+  ARRAY(
+    SELECT AS STRUCT
+      qd.job_id,
+      qd.timestamp,
+      qd.statement_type,
+      qd.priority,
+      qd.total_bytes_processed,
+      qd.query_cost_usd,
+      qd.execution_time_seconds,
+      qd.cache_hit,
+      qd.has_error,
+      qd.query_text
     FROM query_details qd
     WHERE 
       qd.date = date
       AND qd.project_id = project_id
       AND qd.user_email = user_email
       AND (qd.service_account = service_account OR (qd.service_account IS NULL AND service_account IS NULL))
+    ORDER BY qd.creation_time DESC
+    LIMIT 100  -- Keep the 100 most recent queries per day/user combination
   ) AS recent_queries
 FROM
   daily_aggregates
