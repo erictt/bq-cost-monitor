@@ -2,3 +2,4 @@ logs/cost-monitor.log
 node_modules/
 config/projects.json
 output/*.json
+.DS_Store
