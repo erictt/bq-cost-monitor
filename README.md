@@ -2,6 +2,8 @@
 
 A comprehensive solution for monitoring BigQuery usage costs per project with Dataform integration and Google Cloud deployment options.
 
+![dashboard screenshot](./docs/dashboard.png)
+
 ## Features
 
 - **Cost Tracking**: Monitor BigQuery usage costs across multiple projects
