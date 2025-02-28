@@ -81,7 +81,7 @@ This error occurs when Dataform detects multiple objects targeting the same BigQ
 - Use unique schema and table name combinations
 - Check your Dataform project for any default schema settings
 
-The latest version (1.1.2+) includes a fix that uses unique action names with the correct schema and table name configuration to avoid this error.
+The latest version (0.0.2+) includes a fix that uses unique action names with the correct schema and table name configuration to avoid this error.
 
 ## Performance Optimization
 

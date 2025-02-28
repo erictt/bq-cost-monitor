@@ -1,6 +1,6 @@
 {
   "name": "cost-monitor",
-  "version": "1.0.0",
+  "version": "0.0.2",
   "description": "BigQuery cost monitoring solution with Dataform integration",
   "main": "src/scripts/run_monitor.js",
   "scripts": {
