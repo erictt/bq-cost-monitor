@@ -144,33 +144,6 @@ This will create:
 
 The `dataform` directory contains a standalone npm package that can be used in your Dataform projects:
 
-#### Using the Package
-
-1. Copy the `dataform` directory to your project or install it as a dependency
-2. Import the package in your Dataform project
-
-```javascript
-// In your dataform project's index.js
-const { BigQueryCostMonitor } = require("bq-cost-monitoring");
-
-// Initialize with configuration options
-const costMonitor = new BigQueryCostMonitor({
-  schema: "data_governance",  // Your dataset
-  historyDays: 30,
-  costPerTerabyte: 5.0,
-  useExistingDataset: true,   // Use existing dataset
-  projectDatabase: "my-gcp-project"  // GCP project ID
-});
-
-// Create the main cost monitoring table
-const mainTable = costMonitor.createCostMonitoringTable();
-
-// Create views
-costMonitor.createDailySummaryView({
-  sourceTable: mainTable.name
-});
-```
-
 See the [package README](dataform/README.md) for detailed usage instructions and troubleshooting.
 
 ## Cost Optimization Tips

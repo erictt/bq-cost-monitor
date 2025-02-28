@@ -2,7 +2,7 @@
 
 ## Installation
 
-You can use this package in your Dataform projects:
+You can use this package in your Dataform projects with following two ways:
 
 1. Copy the entire `dataform` directory to your project
 2. Import the package in your Dataform project
