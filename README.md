@@ -2,17 +2,6 @@
 
 A comprehensive solution for monitoring BigQuery usage costs per project with Dataform integration and Google Cloud deployment options.
 
-## Overview
-
-BigQuery Cost Monitor helps teams track and analyze their BigQuery usage and associated costs. It provides:
-
-- Detailed cost tracking per project, user, and query
-- Integration with Dataform for SQL workflow management
-- Interactive dashboard for visualizing cost trends
-- Optimization suggestions to reduce costs
-- Automated deployment as Cloud Functions
-- Cost alerts and monitoring
-
 ## Features
 
 - **Cost Tracking**: Monitor BigQuery usage costs across multiple projects
@@ -20,10 +9,8 @@ BigQuery Cost Monitor helps teams track and analyze their BigQuery usage and ass
 - **User Attribution**: Identify which users or teams are generating the most costs
 - **Dataform Integration**: Seamlessly integrate with Dataform projects
 - **Interactive Dashboard**: Visualize cost trends and usage patterns
-- **Query Optimization**: Get suggestions for optimizing queries to reduce costs
 - **Cloud Deployment**: Deploy as a managed Cloud Function with scheduled execution
 - **Cost Alerts**: Setup threshold-based alerts for cost monitoring
-- **Logging & Monitoring**: Structured logging and error alerting
 
 ## Project Structure
 
@@ -83,9 +70,12 @@ bq-cost-monitor/
    ```
 
 3. Configure your projects:
-   Edit `config/projects.json` to include the Google Cloud projects you want to monitor.
-
-### Usage
+   Copy `config/projects.json.example` to `config/projects.json` and edit it to include the Google Cloud projects you want to monitor:
+   ```
+   cp config/projects.json.example config/projects.json
+   ```
+   
+   Edit `projects.json` with your proje
 
 #### Running the Cost Monitor Locally
 
