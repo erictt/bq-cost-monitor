@@ -95,9 +95,6 @@ These optimizations can significantly reduce the amount of data processed (from 
 ## Example Files
 
 - `examples/cost-monitor.js`: Shows how to use the package with existing datasets
-- `src/index.js`: The main package entry point
-- `src/tables/*.js`: Table and view definitions
-- `src/utils/query_optimization.js`: Query optimization utilities
 
 ## Package Structure
 
@@ -118,7 +115,3 @@ dataform/
 ├── package.json         # Package manifest
 └── README.md            # This file
 ```
-
-## Main Project
-
-For the main project documentation, see the [main README.md](../README.md) file.
