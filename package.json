@@ -19,8 +19,8 @@
     "dataform",
     "google-cloud"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Eric Yang",
+  "license": "MIT",
   "dependencies": {
     "@google-cloud/bigquery": "^6.0.0",
     "@google-cloud/functions-framework": "^3.1.0",
