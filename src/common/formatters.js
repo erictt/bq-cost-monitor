@@ -38,11 +38,11 @@ function formatCurrency(value) {
  * @returns {string} - Formatted percentage string
  */
 function formatPercentage(value, total) {
-  if (typeof value !== 'number' || typeof total !== 'number' || 
-      isNaN(value) || isNaN(total) || total === 0) {
+  if (typeof value !== 'number' || typeof total !== 'number' ||
+    isNaN(value) || isNaN(total) || total === 0) {
     return '0.0%';
   }
-  
+
   const percentage = (value / total) * 100;
   // Cap at 100% for display purposes if it somehow exceeds 100%
   const cappedPercentage = Math.min(percentage, 100);
@@ -57,11 +57,11 @@ function formatPercentage(value, total) {
  */
 function formatDate(date, format = 'short') {
   if (!date) return '';
-  
+
   const dateObj = typeof date === 'string' ? new Date(date) : date;
-  
+
   if (isNaN(dateObj.getTime())) return '';
-  
+
   switch (format) {
     case 'short':
       return dateObj.toLocaleDateString();
